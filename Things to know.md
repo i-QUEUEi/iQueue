@@ -200,12 +200,44 @@ The model was evaluated on the **held-out test set** (20% of data it never train
 | **RMSE** (Root Mean Squared Error) | 3.14 min | Slightly penalizes larger errors more than MAE |
 | **R² Score** | **0.9648** | Model explains **96.5% of the variance** in wait times |
 
+### Extended Evaluation (Recommended and now implemented in `src/train_model.py`)
+
+To avoid relying only on MAE/RMSE/R², the pipeline now computes additional diagnostics in `outputs/metrics.txt`.
+
+### Current Extended Results (from latest run)
+
+| Check | Current Value | Interpretation |
+|------|---------------|----------------|
+| **Baseline MAE improvement** | **83.73%** | Model is far better than naive mean prediction |
+| **Baseline RMSE improvement** | **81.26%** | Strong gain over baseline on larger errors |
+| **Overfitting gap (MAE test - train)** | **0.82 min** | Expected gap; not extreme |
+| **Overfitting gap (R² train - test)** | **0.0213** | Good generalization with small drop on test |
+| **Tail error (P90 / P95 / Max AE)** | **5.41 / 6.94 / 14.58 min** | Most errors stay moderate; worst-case still tracked |
+| **Chronological split MAE / RMSE / R²** | **2.35 / 3.31 / 0.9620** | Time-aware validation remains strong |
+| **Uncertainty coverage (P10-P90)** | **65.77%** | Actual waits inside predicted band ~66% of time |
+| **Average uncertainty band width** | **5.81 min** | Typical P10-P90 spread |
+| **Peak day MAE vs non-peak day MAE** | **3.45 vs 1.48 min** | Peak-day predictions are harder |
+| **Peak hour MAE vs non-peak hour MAE** | **2.76 vs 1.57 min** | Busy hours increase error |
+
+### Why These Evaluations Were Added
+
+Each added evaluation answers a different reliability question that MAE/RMSE/R² alone cannot fully answer:
+
+1. **Baseline comparison** — Reason: proves the model is genuinely useful and not just matching what a simple average predictor can do.
+2. **Overfitting check (train vs test gaps)** — Reason: verifies the model generalizes to unseen data instead of memorizing training patterns.
+3. **Tail-error metrics (P90, P95, Max AE)** — Reason: captures high-impact mistakes during worst-case conditions, which averages can hide.
+4. **Time-aware validation (chronological split)** — Reason: simulates real deployment where we predict future dates from past data.
+5. **Segment-wise errors (day/hour/peak flags)** — Reason: identifies operational weak spots (for example, peak windows) so improvements can be targeted.
+6. **Uncertainty coverage and band width** — Reason: checks whether forecast ranges are trustworthy, not just point predictions.
+
+These diagnostics are generated automatically every time `src/train_model.py` runs.
+
 ### Interpretation
 - **R² of 0.96** is considered excellent. A perfect model = 1.0, a model that just guesses the average = 0.0.
 - **MAE of 2.25 min** means if the model says "43 minutes," the true wait will likely be between 41–45 minutes.
 - These metrics were computed on **unseen test data** — so they reflect how the model performs on new inputs, not just what it memorized.
 
-> Note: Since this is a **regression** problem (predicting a number, not a category), metrics like accuracy, precision, recall, and F1 are not applicable. Those are classification metrics. MAE, RMSE, and R² are the correct evaluation metrics here.
+> Note: Since this is a **regression** problem (predicting a number, not a category), metrics like accuracy, precision, recall, and F1 are not applicable. For this project, MAE/RMSE/R² are core metrics, and baseline, segmentation, tail-error, time-aware, and uncertainty checks are complementary diagnostics.
 
 ---
 
@@ -295,7 +327,7 @@ IQUEUE/
 ├── models/
 │   └── queue_model.pkl                    ← Step 4–5: Trained & evaluated model
 ├── outputs/
-│   └── metrics.txt                        ← Step 5: MAE, RMSE, R², feature importances
+│   └── metrics.txt                        ← Step 5: Core + extended evaluation diagnostics
 ├── src/
 │   ├── preprocess.py                      ← Step 2: Data preparation & feature engineering
 │   ├── train_model.py                     ← Steps 3–5: Segregation, training, evaluation
