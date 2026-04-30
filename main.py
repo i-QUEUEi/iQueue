@@ -1,8 +1,10 @@
-import os
+import subprocess
+import sys
+
 
 print("🚀 iQueue System Starting...")
 
-os.system("python src/train_model.py")
+subprocess.run([sys.executable, "src/model_implementation/train_model.py"], check=True)
 
 print("\n🎯 Training complete. You can now run prediction:")
-os.system("python src/predict.py")
+subprocess.run([sys.executable, "src/predict.py"], check=True)

@@ -5,7 +5,7 @@ Queue waiting-time forecasting CLI for LTO CDO.
 ## What This Project Uses
 
 - Synthetic queue dataset in [data/synthetic_lto_cdo_queue_90days.csv](data/synthetic_lto_cdo_queue_90days.csv)
-- Random Forest regression model trained in [src/train_model.py](src/train_model.py)
+- Multi-model benchmark trainer with robust evaluation in [src/model_implementation/train_model.py](src/model_implementation/train_model.py)
 - Monte Carlo uncertainty simulation in [src/predict.py](src/predict.py)
 
 ## Prerequisites
@@ -57,7 +57,7 @@ python main.py
 ### Option B: Train only
 
 ```bash
-python src/train_model.py
+python src/model_implementation/train_model.py
 ```
 
 ### Option C: Predict only (if model already exists)
@@ -81,6 +81,8 @@ python src/train_model.py
 
 - Model file: [models/queue_model.pkl](models/queue_model.pkl)
 - Metrics report: [outputs/metrics.txt](outputs/metrics.txt)
+- Model comparison table: [outputs/model_comparison.csv](outputs/model_comparison.csv)
+- Plots: [outputs/plots](outputs/plots)
 
 ## Daily Team Workflow
 
@@ -95,7 +97,7 @@ Retrain only when:
 
 - data generation changed in [data/Data_.py](data/Data_.py)
 - feature engineering changed in [src/preprocess.py](src/preprocess.py)
-- model settings changed in [src/train_model.py](src/train_model.py)
+- model settings changed in [src/model_implementation/train_model.py](src/model_implementation/train_model.py)
 
 ## CLI Notes
 

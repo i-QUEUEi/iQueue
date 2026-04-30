@@ -118,6 +118,23 @@ For the **first transaction of each day**, defaults are:
 
 > Note: No normalization/scaling is needed for Random Forest — tree-based models are scale-invariant.
 
+### 2e. Data Evaluation
+
+**Description:** Checking the quality and distribution of the dataset before trusting model results.
+
+### What the current pipeline checks
+The data evaluation logic is implemented in `src/model_implementation/train_model.py` and reports into `outputs/metrics.txt`.
+
+- Total rows and columns
+- Duplicate rows
+- Missing cells
+- Negative values in `waiting_time_min`
+- Negative values in `queue_length_at_arrival`
+- Target distribution summary: mean, median, standard deviation, min, max, P10, and P90
+
+### Why this matters
+This is not model prediction evaluation. It is a check on the input data itself so we know the dataset is clean and realistic before judging the model.
+
 ---
 
 ## Step 3: Data Segregation
@@ -146,8 +163,29 @@ X_train, X_test, y_train, y_test = train_test_split(
 
 **Description:** Model learns patterns and relationships from the training data.
 
-### Tool: `src/train_model.py`
-### Algorithm: Random Forest Regressor
+### Tool: `src/model_implementation/train_model.py`
+### Algorithms: Multiple regression models are benchmarked
+
+The current pipeline compares these models:
+
+- `LinearRegression`
+- `RandomForestRegressor`
+- `ExtraTreesRegressor`
+- `GradientBoostingRegressor`
+
+The final saved model is whichever has the lowest robust score.
+
+### Final Selection Method
+
+The model is not chosen from only one metric. It uses a robust score built from:
+
+- random train/test split MAE
+- chronological split MAE
+- 5-fold cross-validation MAE
+
+The trainer averages those checks and selects the best model.
+
+### Example model setup
 
 A **Random Forest** trains hundreds of independent decision trees on random subsamples of the training data, then averages their predictions. This reduces overfitting and handles non-linear relationships well.
 
@@ -181,8 +219,16 @@ model.fit(X_train, y_train)
 
 ### Saved Model
 - Path: `models/queue_model.pkl`
-- Size: ~66 MB
-- Saved using `joblib.dump()`, loaded using `joblib.load()`
+- Saved using `joblib.dump()` and loaded using `joblib.load()`
+
+### Current model files
+
+Each model is now separated into its own file under:
+
+- `src/model_implementation/model_zoo/linear_regression.py`
+- `src/model_implementation/model_zoo/random_forest.py`
+- `src/model_implementation/model_zoo/extra_trees.py`
+- `src/model_implementation/model_zoo/gradient_boosting.py`
 
 ---
 
@@ -190,7 +236,7 @@ model.fit(X_train, y_train)
 
 **Description:** Assessing model performance using metrics.
 
-### Tool: `src/train_model.py` → results in `outputs/metrics.txt`
+### Tool: `src/model_implementation/train_model.py` → results in `outputs/metrics.txt`
 
 The model was evaluated on the **held-out test set** (20% of data it never trained on):
 
@@ -231,6 +277,13 @@ Each added evaluation answers a different reliability question that MAE/RMSE/R²
 6. **Uncertainty coverage and band width** — Reason: checks whether forecast ranges are trustworthy, not just point predictions.
 
 These diagnostics are generated automatically every time `src/train_model.py` runs.
+
+### Data Evaluation vs Model Evaluation
+
+- **Data evaluation** checks the input dataset quality before training.
+- **Model evaluation** checks the predictions against the true waiting times.
+
+So when the report says data evaluation, it means the dataset itself. When it says MAE, RMSE, R², or chronological split, it means model evaluation.
 
 ### Interpretation
 - **R² of 0.96** is considered excellent. A perfect model = 1.0, a model that just guesses the average = 0.0.
@@ -317,6 +370,17 @@ Mean predicted wait ≤ 25 min  →  🟢 LOW       — ✅ GOOD
 
 ---
 
+## Changes Made
+
+These are the main changes currently implemented in the repository:
+
+- Added **robust evaluation** using random split, chronological split, and cross-validation.
+- Added **data evaluation** checks for duplicates, missing values, negative values, and target distribution.
+- Added **multiple models** instead of only one model.
+- Separated each model into its own file under `src/model_implementation/model_zoo/`.
+- Added **visualizations** for target distribution, day-hour heatmap, actual vs predicted, and model comparison.
+- Saved the best model automatically to `models/queue_model.pkl`.
+
 ## 📁 Project File Map
 
 ```
@@ -327,10 +391,14 @@ IQUEUE/
 ├── models/
 │   └── queue_model.pkl                    ← Step 4–5: Trained & evaluated model
 ├── outputs/
-│   └── metrics.txt                        ← Step 5: Core + extended evaluation diagnostics
+│   ├── metrics.txt                        ← Step 5: Core + extended evaluation diagnostics
+│   ├── model_comparison.csv               ← Model benchmark results
+│   └── plots/                             ← Evaluation and data visualization images
 ├── src/
 │   ├── preprocess.py                      ← Step 2: Data preparation & feature engineering
-│   ├── train_model.py                     ← Steps 3–5: Segregation, training, evaluation
+│   ├── model_implementation/
+│   │   ├── train_model.py                 ← Steps 3–5: Segregation, training, evaluation
+│   │   └── model_zoo/                     ← Separate model files
 │   ├── predict.py                         ← Step 6: Deployment + Monte Carlo uncertainty forecast
 │   └── utils.py                           ← Utilities
 ├── main.py                                ← Entry point
