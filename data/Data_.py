@@ -9,7 +9,7 @@ import pandas as pd
 np.random.seed(42)
 
 # ==================== CONFIGURATION ====================
-NUM_WEEKS = 13
+NUM_WEEKS = 44
 START_DATE = datetime(2026, 1, 1)
 DATA_DIR = Path(__file__).resolve().parent
 HOLIDAY_CALENDAR_PATH = DATA_DIR / "2026-calendar-with-holidays-portrait-sunday-start-en-ph.csv"
@@ -26,6 +26,7 @@ TRUE_PATTERNS = {
 }
 
 data = []
+prev_day_load = 1.0
 
 def load_ph_holidays(calendar_path, year):
     month_map = {
@@ -60,6 +61,7 @@ print("=" * 70)
 
 for week in range(NUM_WEEKS):
     current_date = START_DATE + timedelta(weeks=week)
+    trend_factor = 1.0 + 0.01 * np.sin(2 * np.pi * week / max(1, NUM_WEEKS)) + 0.006 * (week / max(1, NUM_WEEKS))
     
     # Loop through Monday to Saturday (0-5, skip Sunday)
     for day_offset in range(6):  # Monday (0) to Saturday (5)
@@ -83,9 +85,18 @@ for week in range(NUM_WEEKS):
         holiday_factor = 0.75 if is_holiday else 1.0
         pre_holiday_factor = 1.12 if is_pre_holiday else 1.0
         
+        day_index = (day_date - START_DATE).days
+        day_wave = 1.0 + 0.03 * np.sin(2 * np.pi * day_index / 9) + 0.02 * np.cos(2 * np.pi * day_index / 17)
+        baseline_load = 1.0 + 0.04 * np.sin(2 * np.pi * day_index / 11) + 0.03 * np.cos(2 * np.pi * day_index / 23)
+        day_load = 0.6 * prev_day_load + 0.4 * baseline_load
+        prev_day_load = day_load
+        capacity_factor = 1.03 if day_name in ['Monday', 'Friday'] else 0.98 if day_name in ['Tuesday', 'Wednesday', 'Thursday'] else 1.0
+
         # Generate transactions for each hour
         for hour_idx, hour in enumerate(range(8, 17)):
+            hour_wave = 1.0 + 0.025 * np.sin(2 * np.pi * (hour_idx + day_index) / 9)
             base_wait = pattern[hour_idx] * seasonal_factor * eom_factor * holiday_factor * pre_holiday_factor
+            base_wait = base_wait * trend_factor * day_wave * hour_wave * day_load * capacity_factor
             
             # Number of transactions this hour (more transactions = more data)
             if is_holiday:
@@ -103,6 +114,8 @@ for week in range(NUM_WEEKS):
                 # Add realistic variation to wait time
                 wait_variation = np.random.uniform(0.85, 1.15)
                 wait_time = base_wait * wait_variation
+                noise = np.random.uniform(-0.08, 0.08)
+                wait_time = wait_time * (1.0 + noise)
                 wait_time = max(5, min(90, wait_time))
                 
                 # Queue length is correlated with wait time
@@ -112,6 +125,11 @@ for week in range(NUM_WEEKS):
                     queue_length = np.random.randint(12, 28)
                 else:
                     queue_length = np.random.randint(2, 12)
+
+                # Nonlinear congestion: longer queues grow waits faster
+                if queue_length > 18:
+                    wait_time *= 1.0 + (queue_length - 18) / 90
+                    wait_time = max(5, min(90, wait_time))
                 
                 # Service time based on congestion
                 if wait_time > 45:
