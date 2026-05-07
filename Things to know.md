@@ -11,11 +11,11 @@ Everything done in this project mapped to the standard ML process.
 ### What We Did
 Since no real historical queue logs exist from LTO CDO, we **generated synthetic data** that realistically simulates LTO CDO queue behavior. This is a valid approach in research when real data is unavailable — the synthetic data is built on real-world logic and domain knowledge about how government queues work.
 
-### Tool: `data/Data_.py`
-- Simulates **13 weeks** of queue transactions (Jan 1 – Mar 31, 2025)
+### Tool: data/Data_.py
+- Simulates **44 weeks (~10 months)** starting **Jan 1, 2026**
 - Covers **Monday to Saturday**, hours **8:00 AM – 4:00 PM**
-- Generates **8–14 random customer arrivals per hour** per day
-- Total records generated: **6,498 transactions**
+- Generates **4–14 customer arrivals per hour** (fewer on holidays)
+- Output saved to data/synthetic_lto_cdo_queue_90days.csv
 
 ### Ground Truth Patterns Used (Domain Knowledge)
 These are the real-world-informed average wait times (in minutes) baked into the simulation:
@@ -34,12 +34,61 @@ These are the real-world-informed average wait times (in minutes) baked into the
 
 Monday and Friday are peak days. Wednesday is the lightest day.
 
-### Realistic Noise Added
-Raw patterns are not used directly — ±15% random variation is added per transaction:
-```python
-wait_variation = np.random.uniform(0.85, 1.15)
-wait_time = base_wait * wait_variation
-wait_time = max(5, min(90, wait_time))   # capped between 5–90 min
+### How the Dataset Was Made More Realistic (with code references)
+The generator keeps the base weekday/hour patterns, then adds realistic, explainable variability. See data/Data_.py for the exact logic and constants.
+
+**1) Seasonal drift + month effects**
+Adds month-based seasonality so May behaves differently from January.
+
+Code reference: [data/Data_.py](data/Data_.py#L77-L86)
+
+**2) End-of-month + holiday effects (PH 2026)**
+Uses the PH holiday calendar file to lower traffic on holidays and increase the day before.
+
+Code reference: [Holiday parsing](data/Data_.py#L31-L56), [holiday factors](data/Data_.py#L80-L86)
+
+**3) Day-to-day autocorrelation**
+Busy days tend to stay busy; quiet days tend to stay quiet.
+
+Code reference: [data/Data_.py](data/Data_.py#L88-L92)
+
+**4) Capacity shifts by weekday**
+Mon/Fri are heavier; midweek is lighter.
+
+Code reference: [data/Data_.py](data/Data_.py#L93-L93)
+
+**5) Nonlinear congestion**
+When queue length is high, wait time grows faster than linearly.
+
+Code reference: [data/Data_.py](data/Data_.py#L129-L132)
+
+**6) Bounded noise per transaction**
+Adds small noise without destroying signal.
+
+Code reference: [data/Data_.py](data/Data_.py#L114-L118)
+
+### Data Generation Algorithm (Code Reference)
+- Implementation: [data/Data_.py](data/Data_.py#L62-L193)
+- PH holiday source: [data/2026-calendar-with-holidays-portrait-sunday-start-en-ph.csv](data/2026-calendar-with-holidays-portrait-sunday-start-en-ph.csv)
+
+### Data Generation Algorithm (Summary)
+```text
+for each week in range(NUM_WEEKS):
+        compute trend_factor for the week
+        for each day (Mon–Sat):
+                compute month features, end-of-month, holiday flags
+                compute day_load using autocorrelation from previous day
+                for each hour (8–16):
+                        base_wait = TRUE_PATTERN[day][hour]
+                        base_wait *= seasonal * end_of_month * holiday * pre_holiday
+                        base_wait *= trend * day_wave * hour_wave * day_load * capacity
+                        for each transaction in hour:
+                                wait_time = base_wait * uniform(0.85, 1.15)
+                                wait_time *= (1 + uniform(-0.08, 0.08))
+                                queue_length = sample_by_wait(wait_time)
+                                if queue_length is high: wait_time *= nonlinear_congestion
+                                service_time = sample_by_wait(wait_time)
+                                save row
 ```
 
 ### Output
@@ -52,6 +101,7 @@ Saved to: `data/synthetic_lto_cdo_queue_90days.csv`
 **Description:** Cleaning, transforming, and formatting data — handling missing values, encoding categorical variables, normalizing features.
 
 ### Tool: `src/preprocess.py` + `data/Data_.py`
+Code reference: [src/preprocess.py](src/preprocess.py), [data/Data_.py](data/Data_.py)
 
 ### 2a. Cleaning (`preprocess.py → load_data()`)
 - Parses `date` column into proper datetime format
@@ -91,6 +141,21 @@ Day 22–31 → Week 4
 ```
 This allows Monday April 7 (Week 1) to differ from Monday April 28 (Week 4).
 
+**Month/season features**
+```python
+df['month'] = df['date'].dt.month
+month_angle = 2 * np.pi * (df['month'] - 1) / 12
+df['month_sin'] = np.sin(month_angle)
+df['month_cos'] = np.cos(month_angle)
+df['is_end_of_month'] = (df['date'].dt.day >= (df['date'].dt.days_in_month - 2)).astype(int)
+```
+
+**Holiday flags (PH 2026)**
+```python
+df['is_holiday'] = 1 if date is a holiday else 0
+df['is_pre_holiday'] = 1 if next day is a holiday else 0
+```
+
 **Lag Features** — captures the previous transaction's context within the same day:
 ```python
 df['queue_length_lag1'] = df.groupby('date')['queue_length_at_arrival'].shift(1)
@@ -100,21 +165,27 @@ For the **first transaction of each day**, defaults are:
 - Peak days (Mon/Fri): `queue_lag=8`, `wait_lag=25`  
 - Other days: `queue_lag=3`, `wait_lag=10`
 
-### 2d. Final Feature Set (10 inputs, 1 target)
+### 2d. Final Feature Set (16 inputs, 1 target)
 
 | Role | Column | Type |
 |------|--------|------|
 | **Target (y)** | `waiting_time_min` | Continuous (minutes) |
 | Feature 1 | `hour` | Numeric (8–16) |
 | Feature 2 | `day_of_week` | Encoded (0–5) |
-| Feature 3 | `week_of_month` | Engineered (1–4) |
-| Feature 4 | `is_peak_day` | Binary (0/1) |
-| Feature 5 | `queue_length_at_arrival` | Numeric |
-| Feature 6 | `service_time_min` | Numeric |
-| Feature 7 | `is_weekend` | Binary (0/1) |
-| Feature 8 | `is_peak_hour` | Binary (0/1) |
-| Feature 9 | `queue_length_lag1` | Numeric |
-| Feature 10 | `waiting_time_lag1` | Numeric |
+| Feature 3 | `week_of_month` | Engineered (1–5) |
+| Feature 4 | `month` | Numeric (1–12) |
+| Feature 5 | `month_sin` | Seasonal |
+| Feature 6 | `month_cos` | Seasonal |
+| Feature 7 | `is_end_of_month` | Binary (0/1) |
+| Feature 8 | `is_holiday` | Binary (0/1) |
+| Feature 9 | `is_pre_holiday` | Binary (0/1) |
+| Feature 10 | `is_peak_day` | Binary (0/1) |
+| Feature 11 | `queue_length_at_arrival` | Numeric |
+| Feature 12 | `service_time_min` | Numeric |
+| Feature 13 | `is_weekend` | Binary (0/1) |
+| Feature 14 | `is_peak_hour` | Binary (0/1) |
+| Feature 15 | `queue_length_lag1` | Numeric |
+| Feature 16 | `waiting_time_lag1` | Numeric |
 
 > Note: No normalization/scaling is needed for Random Forest — tree-based models are scale-invariant.
 
@@ -141,7 +212,8 @@ This is not model prediction evaluation. It is a check on the input data itself 
 
 **Description:** Splitting the dataset into training, validation, and test sets.
 
-### Tool: `src/train_model.py`
+### Tool: `src/model_implementation/train_model.py`
+Code reference: [src/model_implementation/train_model.py](src/model_implementation/train_model.py)
 
 ```python
 X_train, X_test, y_train, y_test = train_test_split(
@@ -164,13 +236,13 @@ X_train, X_test, y_train, y_test = train_test_split(
 **Description:** Model learns patterns and relationships from the training data.
 
 ### Tool: `src/model_implementation/train_model.py`
+Code reference: [src/model_implementation/train_model.py](src/model_implementation/train_model.py), [src/model_implementation/model_zoo](src/model_implementation/model_zoo)
 ### Algorithms: Multiple regression models are benchmarked
 
 The current pipeline compares these models:
 
 - `LinearRegression`
 - `RandomForestRegressor`
-- `ExtraTreesRegressor`
 - `GradientBoostingRegressor`
 
 The final saved model is whichever has the lowest robust score.
@@ -227,7 +299,6 @@ Each model is now separated into its own file under:
 
 - `src/model_implementation/model_zoo/linear_regression.py`
 - `src/model_implementation/model_zoo/random_forest.py`
-- `src/model_implementation/model_zoo/extra_trees.py`
 - `src/model_implementation/model_zoo/gradient_boosting.py`
 
 ---
@@ -237,6 +308,7 @@ Each model is now separated into its own file under:
 **Description:** Assessing model performance using metrics.
 
 ### Tool: `src/model_implementation/train_model.py` → results in `outputs/metrics.txt`
+Code reference: [src/model_implementation/train_model.py](src/model_implementation/train_model.py), [outputs/metrics.txt](outputs/metrics.txt)
 
 The model was evaluated on the **held-out test set** (20% of data it never trained on):
 
@@ -246,7 +318,7 @@ The model was evaluated on the **held-out test set** (20% of data it never train
 | **RMSE** (Root Mean Squared Error) | 3.14 min | Slightly penalizes larger errors more than MAE |
 | **R² Score** | **0.9648** | Model explains **96.5% of the variance** in wait times |
 
-### Extended Evaluation (Recommended and now implemented in `src/train_model.py`)
+### Extended Evaluation (Recommended and now implemented in `src/model_implementation/train_model.py`)
 
 To avoid relying only on MAE/RMSE/R², the pipeline now computes additional diagnostics in `outputs/metrics.txt`.
 
@@ -276,7 +348,7 @@ Each added evaluation answers a different reliability question that MAE/RMSE/R²
 5. **Segment-wise errors (day/hour/peak flags)** — Reason: identifies operational weak spots (for example, peak windows) so improvements can be targeted.
 6. **Uncertainty coverage and band width** — Reason: checks whether forecast ranges are trustworthy, not just point predictions.
 
-These diagnostics are generated automatically every time `src/train_model.py` runs.
+These diagnostics are generated automatically every time `src/model_implementation/train_model.py` runs.
 
 ### Data Evaluation vs Model Evaluation
 
@@ -299,6 +371,7 @@ So when the report says data evaluation, it means the dataset itself. When it sa
 **Description:** Deploying the final trained model into a real-world environment.
 
 ### Current Deployment: CLI Application (`src/predict.py`)
+Code reference: [src/predict.py](src/predict.py), [main.py](main.py)
 
 The trained model is loaded and served through an interactive command-line interface:
 
@@ -315,13 +388,13 @@ Users interact via a menu:
 ```
 User enters date (e.g., 2026-04-07)
         ↓
-Extract: day_name = "Monday", week_of_month = 1
+Extract: day_name, week_of_month, month, holiday flags
         ↓
 Look up historical averages:
-  queue_patterns['Monday'][1][hour]  ← Week-1 Monday avg queue
-  wait_patterns['Monday'][1][hour]   ← Week-1 Monday avg wait (for lag)
+  queue_patterns['Monday'][month][week][hour]  ← Month + week + hour avg queue
+  wait_patterns['Monday'][month][week][hour]   ← Month + week + hour avg wait (for lag)
         ↓
-Build 10-feature vector
+Build 16-feature vector
         ↓
 Generate N randomized feature variants (Monte Carlo)
         ↓
@@ -356,7 +429,7 @@ Mean predicted wait ≤ 25 min  →  🟢 LOW       — ✅ GOOD
 | ✅ This system IS | ❌ This system is NOT |
 |------------------|----------------------|
 | A **planning tool** — helps users pick the best date/time to visit | A **real-time tracker** — cannot tell current queue length |
-| Based on **historical patterns** from 90 days of data | Predicting a **specific person's exact wait** when already in queue |
+| Based on **historical patterns** from ~10 months of data | Predicting a **specific person's exact wait** when already in queue |
 | Reliable for **day-of-week and week-of-month** trends | Accounting for **today's unexpected events** (holidays, staff absences) |
 | Includes **uncertainty-aware forecasts** via Monte Carlo ranges (P10-P90) | A guarantee that wait time will exactly match one number |
 
@@ -387,7 +460,7 @@ These are the main changes currently implemented in the repository:
 IQUEUE/
 ├── data/
 │   ├── Data_.py                           ← Step 1: Generates synthetic data
-│   └── synthetic_lto_cdo_queue_90days.csv ← Raw collected data (6,498 rows)
+│   └── synthetic_lto_cdo_queue_90days.csv ← Generated dataset (size varies)
 ├── models/
 │   └── queue_model.pkl                    ← Step 4–5: Trained & evaluated model
 ├── outputs/
