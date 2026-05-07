@@ -1,12 +1,19 @@
-import pandas as pd
-import numpy as np
+import calendar
+import re
 from datetime import datetime, timedelta
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
 
 np.random.seed(42)
 
 # ==================== CONFIGURATION ====================
 NUM_WEEKS = 13
-START_DATE = datetime(2025, 1, 1)
+START_DATE = datetime(2026, 1, 1)
+DATA_DIR = Path(__file__).resolve().parent
+HOLIDAY_CALENDAR_PATH = DATA_DIR / "2026-calendar-with-holidays-portrait-sunday-start-en-ph.csv"
+OUTPUT_CSV_PATH = DATA_DIR / "synthetic_lto_cdo_queue_90days.csv"
 
 # REALISTIC HOURLY WAIT TIMES (The TRUE patterns we want the model to learn)
 TRUE_PATTERNS = {
@@ -19,6 +26,33 @@ TRUE_PATTERNS = {
 }
 
 data = []
+
+def load_ph_holidays(calendar_path, year):
+    month_map = {
+        "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+        "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
+    }
+    holidays = set()
+    if not calendar_path.exists():
+        return holidays
+
+    text = calendar_path.read_text(encoding="utf-8", errors="ignore")
+    for line in text.splitlines():
+        match = re.search(r"\b([A-Za-z]{3})\s+(\d{1,2})\s*:\s*", line)
+        if not match:
+            continue
+        month_name = match.group(1).title()
+        day = int(match.group(2))
+        month = month_map.get(month_name)
+        if not month:
+            continue
+        try:
+            holidays.add(datetime(year, month, day).date())
+        except ValueError:
+            continue
+    return holidays
+
+holiday_dates = load_ph_holidays(HOLIDAY_CALENDAR_PATH, START_DATE.year)
 
 print("=" * 70)
 print("Generating training data with CLEAR day/hour patterns...")
@@ -37,13 +71,27 @@ for week in range(NUM_WEEKS):
             continue
             
         pattern = TRUE_PATTERNS[day_name]
+
+        month = day_date.month
+        month_angle = 2 * np.pi * (month - 1) / 12
+        seasonal_factor = 1.0 + 0.08 * np.sin(month_angle)
+        last_day = calendar.monthrange(day_date.year, month)[1]
+        is_end_of_month = 1 if day_date.day >= last_day - 2 else 0
+        eom_factor = 1.06 if is_end_of_month else 1.0
+        is_holiday = 1 if day_date.date() in holiday_dates else 0
+        is_pre_holiday = 1 if (day_date + timedelta(days=1)).date() in holiday_dates else 0
+        holiday_factor = 0.75 if is_holiday else 1.0
+        pre_holiday_factor = 1.12 if is_pre_holiday else 1.0
         
         # Generate transactions for each hour
         for hour_idx, hour in enumerate(range(8, 17)):
-            base_wait = pattern[hour_idx]
+            base_wait = pattern[hour_idx] * seasonal_factor * eom_factor * holiday_factor * pre_holiday_factor
             
             # Number of transactions this hour (more transactions = more data)
-            num_transactions = np.random.randint(8, 15)
+            if is_holiday:
+                num_transactions = np.random.randint(4, 9)
+            else:
+                num_transactions = np.random.randint(8, 15)
             
             is_peak_day = 1 if day_name in ['Monday', 'Friday'] else 0
             is_peak_hour = 1 if hour in [9, 10, 11, 14, 15] else 0
@@ -79,6 +127,12 @@ for week in range(NUM_WEEKS):
                     'hour': hour,
                     'day_of_week': day_date.weekday(),
                     'day_name': day_name,
+                    'month': month,
+                    'month_sin': round(float(np.sin(month_angle)), 6),
+                    'month_cos': round(float(np.cos(month_angle)), 6),
+                    'is_end_of_month': is_end_of_month,
+                    'is_holiday': is_holiday,
+                    'is_pre_holiday': is_pre_holiday,
                     'is_peak_day': is_peak_day,
                     'is_peak_hour': is_peak_hour,
                     'queue_length_at_arrival': queue_length,
@@ -117,7 +171,7 @@ df = df.fillna(0)
 df['is_weekend'] = (df['day_of_week'] >= 5).astype(int)
 
 # Save
-df.to_csv('synthetic_lto_cdo_queue_90days.csv', index=False)
+df.to_csv(OUTPUT_CSV_PATH, index=False)
 
 print(f"\n✅ Generated {len(df):,} transactions")
 print(f"📅 Date range: {df['date'].min()} to {df['date'].max()}")
@@ -140,5 +194,6 @@ for hour in range(8, 17):
         print(f"{hour:02d}:00   {monday_avg:>6.1f} min   {wednesday_avg:>6.1f} min   {monday_avg - wednesday_avg:>+6.1f} min")
 
 print("\n" + "=" * 70)
-print("✅ Data ready! Now run: cd .. && py main.py")
+print(f"✅ Data ready! Saved to {OUTPUT_CSV_PATH}")
+print("✅ Next: run 'py main.py' from repo root")
 print("=" * 70)

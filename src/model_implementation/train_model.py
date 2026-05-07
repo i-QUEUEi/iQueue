@@ -273,22 +273,30 @@ def sample_predictions(model, features):
         {"name": "Wednesday 8am (Should be 9min)", "hour": 8, "day_of_week": 2, "is_peak_day": 0, "is_peak_hour": 0, "queue": 4, "lag_wait": 8},
     ]
 
+    sample_month = 1
+    month_angle = 2 * np.pi * (sample_month - 1) / 12
+
     for case in test_cases:
-        test_X = pd.DataFrame(
-            [[
-                case["hour"],
-                case["day_of_week"],
-                2,
-                case["is_peak_day"],
-                case["queue"],
-                35,
-                0,
-                case["is_peak_hour"],
-                max(2, case["queue"] - 3),
-                case["lag_wait"],
-            ]],
-            columns=features,
-        )
+        feature_values = {
+            "hour": case["hour"],
+            "day_of_week": case["day_of_week"],
+            "week_of_month": 2,
+            "month": sample_month,
+            "month_sin": float(np.sin(month_angle)),
+            "month_cos": float(np.cos(month_angle)),
+            "is_end_of_month": 0,
+            "is_holiday": 0,
+            "is_pre_holiday": 0,
+            "is_peak_day": case["is_peak_day"],
+            "queue_length_at_arrival": case["queue"],
+            "service_time_min": 35,
+            "is_weekend": 1 if case["day_of_week"] == 5 else 0,
+            "is_peak_hour": case["is_peak_hour"],
+            "queue_length_lag1": max(2, case["queue"] - 3),
+            "waiting_time_lag1": case["lag_wait"],
+        }
+        row = [feature_values[name] for name in features]
+        test_X = pd.DataFrame([row], columns=features)
         pred = model.predict(test_X)[0]
         print(f"   {case['name']}: {pred:.1f} min")
 
@@ -351,7 +359,7 @@ def write_report(summary, results_df, selected_result, baseline_metrics, time_tr
 
         f.write("\nWHY THESE MODELS\n")
         f.write("LinearRegression is the simplest baseline and shows whether the pattern is close to linear.\n")
-        f.write("RandomForest and ExtraTrees handle nonlinear interactions, noise, and mixed feature scales without manual scaling.\n")
+        f.write("RandomForest handles nonlinear interactions, noise, and mixed feature scales without manual scaling.\n")
         f.write("GradientBoosting is included because it can capture residual structure with fewer trees than bagging models.\n")
 
         f.write("\nWHY NOT OTHER OPTIONS\n")
