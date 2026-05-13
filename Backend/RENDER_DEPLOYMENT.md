@@ -24,8 +24,8 @@
 | **Environment** | Python |
 | **Region** | Choose closest to you |
 | **Branch** | `main` |
-| **Build Command** | `pip install -r Backend/requirements.txt` |
-| **Start Command** | `gunicorn Backend.app:app` |
+| **Build Command** | `pip install -r requirements.txt` |
+| **Start Command** | `gunicorn app:app` |
 | **Plan** | Free (starts with free tier) |
 
 ### 3. Environment Variables
@@ -42,18 +42,18 @@ After deployment, upload your model:
 2. Click **Shell** tab (at the top)
 3. Run this command in the shell:
 ```bash
-mkdir -p Backend/models
+mkdir -p models
 ```
 
 4. Then upload the model file:
    - Go to **Files** tab
-   - Upload `queue_model.pkl` to `Backend/models/`
+  - Upload `queue_model.pkl` to `models/`
    - Or use SCP if you have SSH access
 
 **Alternative (if shell upload doesn't work):**
 ```bash
 # From your local terminal, after getting SSH access:
-scp queue_model.pkl user@render-instance:/app/Backend/models/
+scp queue_model.pkl user@render-instance:/app/models/
 ```
 
 ### 5. Restart Service
