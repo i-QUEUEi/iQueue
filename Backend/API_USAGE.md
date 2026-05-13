@@ -2,23 +2,23 @@
 
 Short reference for testing the API (Postman / curl) and a small Vite/React example to call the endpoints and show weekly recommendations.
 
-**Base URL**: https://iqueue-api.onrender.com
+**Base URL**: https://iqueue-gj4a.onrender.com
+
+**Postman quick setup**
+1) Create an Environment variable `baseUrl` with value `https://iqueue-gj4a.onrender.com`.
+2) In each request, set URL to `{{baseUrl}}/path`.
+3) For POST endpoints, set header `Content-Type: application/json`.
 
 **Endpoints**
 - **GET /health** — check service + model/data status
-  - Browser: open `https://iqueue-api.onrender.com/health`
-  - curl:
-    ```bash
-    curl https://iqueue-api.onrender.com/health
-    ```
+  - Postman: `GET {{baseUrl}}/health`
 
 - **GET /info** — service metadata
-  - Browser: open `https://iqueue-api.onrender.com/info`
+  - Postman: `GET {{baseUrl}}/info`
 
 - **POST /predict** — single prediction
-  - URL: `https://iqueue-api.onrender.com/predict`
-  - Headers: `Content-Type: application/json`
-  - Body example (JSON):
+  - Postman: `POST {{baseUrl}}/predict`
+  - Body (raw JSON):
     ```json
     {
       "date": "2026-05-13",
@@ -27,17 +27,10 @@ Short reference for testing the API (Postman / curl) and a small Vite/React exam
       "queue_length_at_arrival": 5
     }
     ```
-  - curl:
-    ```bash
-    curl -X POST https://iqueue-api.onrender.com/predict \
-      -H "Content-Type: application/json" \
-      -d '{"date":"2026-05-13","hour":10,"day_of_week":"Wednesday","queue_length_at_arrival":5}'
-    ```
-  - Postman: create POST request, set header `Content-Type: application/json`, paste JSON body, send.
 
 - **POST /batch-predict** — multiple predictions (useful for weekly UI)
-  - URL: `https://iqueue-api.onrender.com/batch-predict`
-  - Body example:
+  - Postman: `POST {{baseUrl}}/batch-predict`
+  - Body (raw JSON):
     ```json
     {
       "predictions": [
@@ -46,16 +39,42 @@ Short reference for testing the API (Postman / curl) and a small Vite/React exam
       ]
     }
     ```
-  - curl:
-    ```bash
-    curl -X POST https://iqueue-api.onrender.com/batch-predict \
-      -H "Content-Type: application/json" \
-      -d '{"predictions":[{"date":"2026-05-13","hour":9,"day_of_week":"Wednesday","queue_length_at_arrival":3}]}'
-    ```
+
+- **GET /api/model-performance** — charts + cards from training outputs
+  - Postman: `GET {{baseUrl}}/api/model-performance`
+
+- **GET /api/feature-importance** — feature importances + insights
+  - Postman: `GET {{baseUrl}}/api/feature-importance`
+
+- **GET /api/historical-analytics** — daily, hourly, heatmap, insights
+  - Postman: `GET {{baseUrl}}/api/historical-analytics`
+
+- **GET /api/predictive-analytics** — model-based time-slot predictions
+  - Postman: `GET {{baseUrl}}/api/predictive-analytics`
+
+- **GET /api/dataset-summary** — dataset stats
+  - Postman: `GET {{baseUrl}}/api/dataset-summary`
+
+- **GET /api/metrics** — raw metrics.txt + parsed feature importance
+  - Postman: `GET {{baseUrl}}/api/metrics`
+
+**Copy-ready endpoint list (Postman)**
+```
+GET https://iqueue-gj4a.onrender.com/health
+GET https://iqueue-gj4a.onrender.com/info
+POST https://iqueue-gj4a.onrender.com/predict
+POST https://iqueue-gj4a.onrender.com/batch-predict
+GET https://iqueue-gj4a.onrender.com/api/model-performance
+GET https://iqueue-gj4a.onrender.com/api/feature-importance
+GET https://iqueue-gj4a.onrender.com/api/historical-analytics
+GET https://iqueue-gj4a.onrender.com/api/predictive-analytics
+GET https://iqueue-gj4a.onrender.com/api/dataset-summary
+GET https://iqueue-gj4a.onrender.com/api/metrics
+```
 
 Notes:
-- If `/health` shows `model_loaded: false` after deploy, check Render logs for the model download error or confirm `MODEL_URL` is a direct `resolve` link.
-- The API uses Flask-CORS; browser requests from your frontend should work. If you see CORS errors in the browser console, test with Postman or curl (they ignore CORS) and inspect server logs.
+- If `/health` shows `model_loaded: false` after deploy, check logs for the model download error or confirm `MODEL_URL` is a direct `resolve` link.
+- The API uses Flask-CORS; browser requests from your frontend should work. If you see CORS errors in the browser console, test with Postman (it ignores CORS) and inspect server logs.
 
 ---
 
