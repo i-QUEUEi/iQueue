@@ -36,4 +36,3 @@ Thumbs.db
 
 # Project-generated artifacts
 models/queue_model.pkl
-outputs/metrics.txt
