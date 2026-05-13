@@ -26,7 +26,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 # Import preprocessing functions
-from preprocess import get_features
+from preprocess import get_features, build_feature_dataframe
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -153,21 +153,8 @@ def predict():
                 "error": f"Missing required fields. Expected: {required_fields}"
             }), 400
         
-        # Parse date
-        date_obj = pd.to_datetime(data["date"])
-        
-        # Create feature dictionary
-        features = {
-            "date": date_obj,
-            "hour": int(data["hour"]),
-            "day_of_week": data["day_of_week"],
-            "queue_length_at_arrival": float(data["queue_length_at_arrival"])
-        }
-        
-        # Get features (same preprocessing as training)
-        X = get_features([features])
-        
-        # Make prediction
+        # Build feature DataFrame from input JSON
+        X = build_feature_dataframe(data)
         prediction = model.predict(X)[0]
         
         return jsonify({
@@ -203,35 +190,19 @@ def batch_predict():
     try:
         data = request.get_json()
         predictions_input = data.get("predictions", [])
-        
         if not predictions_input:
             return jsonify({"error": "No predictions provided"}), 400
-        
+
+        # Build feature DataFrame for all items at once
+        X = build_feature_dataframe(predictions_input)
+        preds = model.predict(X)
         results = []
-        for item in predictions_input:
-            try:
-                date_obj = pd.to_datetime(item["date"])
-                features = {
-                    "date": date_obj,
-                    "hour": int(item["hour"]),
-                    "day_of_week": item["day_of_week"],
-                    "queue_length_at_arrival": float(item["queue_length_at_arrival"])
-                }
-                
-                X = get_features([features])
-                pred = model.predict(X)[0]
-                
-                results.append({
-                    "input": item,
-                    "prediction": float(pred),
-                    "status": "success"
-                })
-            except Exception as e:
-                results.append({
-                    "input": item,
-                    "error": str(e),
-                    "status": "failed"
-                })
+        for item, pred in zip(predictions_input, preds):
+            results.append({
+                "input": item,
+                "prediction": float(pred),
+                "status": "success"
+            })
         
         return jsonify({
             "success": True,

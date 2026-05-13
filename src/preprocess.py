@@ -104,3 +104,96 @@ def get_features(df):
     print(f"   Pre-holiday rows: {X['is_pre_holiday'].sum()} records")
     
     return X, y, features
+
+
+def build_feature_dataframe(records):
+    """Convert input record or list of records (dicts) into a feature DataFrame matching training order.
+
+    Expected fields per record: `date` (YYYY-MM-DD) or `date` as datetime, `hour`, `day_of_week` (string or int),
+    `queue_length_at_arrival` (number). Missing auxiliary features are filled with sensible defaults.
+    """
+    if isinstance(records, dict):
+        records = [records]
+
+    rows = []
+    # simple holiday loader uses same calendar parsing as load_ph_holiday_month_days
+    holiday_md = load_ph_holiday_month_days(HOLIDAY_CALENDAR_PATH)
+
+    for rec in records:
+        # date handling
+        date_val = rec.get('date')
+        if isinstance(date_val, str):
+            date = pd.to_datetime(date_val)
+        elif hasattr(date_val, 'to_datetime'):
+            date = pd.to_datetime(date_val)
+        else:
+            date = pd.Timestamp.now()
+
+        hour = int(rec.get('hour', 9))
+
+        # day_of_week can be string or numeric
+        dow = rec.get('day_of_week')
+        if isinstance(dow, str):
+            day_of_week = pd.Timestamp(date).day_name()
+            # map string to numeric
+            day_map = {'Monday':0,'Tuesday':1,'Wednesday':2,'Thursday':3,'Friday':4,'Saturday':5}
+            day_of_week_num = day_map.get(dow, pd.Timestamp(date).weekday())
+        else:
+            day_of_week_num = int(dow) if dow is not None else int(pd.Timestamp(date).weekday())
+
+        week_of_month = (date.day - 1) // 7 + 1
+        month = date.month
+        angle = 2 * np.pi * (month - 1) / 12
+        month_sin = float(np.sin(angle))
+        month_cos = float(np.cos(angle))
+        days_in_month = date.days_in_month
+        is_end_of_month = 1 if date.day >= days_in_month - 2 else 0
+
+        is_holiday = 1 if (month, date.day) in holiday_md else 0
+        next_day = date + pd.Timedelta(days=1)
+        is_pre_holiday = 1 if (next_day.month, next_day.day) in holiday_md else 0
+
+        # peak day/weekend
+        day_name = date.strftime('%A')
+        is_peak_day = 1 if day_name in ['Monday', 'Friday'] else 0
+        is_weekend = 1 if day_name == 'Saturday' else 0
+        if is_peak_day:
+            is_peak_hour = 1 if hour in [9,10,11,13,14,15] else 0
+        else:
+            is_peak_hour = 1 if hour in [9,10,14,15] else 0
+
+        queue = float(rec.get('queue_length_at_arrival', rec.get('queue_length', 5)))
+        # reasonable defaults for lags and service time
+        queue_length_lag1 = max(1.0, queue - 3.0)
+        waiting_time_lag1 = max(1.0, queue * 1.5)
+        service_time_min = float(rec.get('service_time_min', 35.0))
+
+        row = {
+            'hour': hour,
+            'day_of_week': day_of_week_num,
+            'week_of_month': week_of_month,
+            'month': month,
+            'month_sin': month_sin,
+            'month_cos': month_cos,
+            'is_end_of_month': is_end_of_month,
+            'is_holiday': is_holiday,
+            'is_pre_holiday': is_pre_holiday,
+            'is_peak_day': is_peak_day,
+            'queue_length_at_arrival': queue,
+            'service_time_min': service_time_min,
+            'is_weekend': is_weekend,
+            'is_peak_hour': is_peak_hour,
+            'queue_length_lag1': queue_length_lag1,
+            'waiting_time_lag1': waiting_time_lag1
+        }
+        rows.append(row)
+
+    feat_order = [
+        'hour', 'day_of_week', 'week_of_month', 'month', 'month_sin', 'month_cos',
+        'is_end_of_month', 'is_holiday', 'is_pre_holiday', 'is_peak_day',
+        'queue_length_at_arrival', 'service_time_min', 'is_weekend', 'is_peak_hour',
+        'queue_length_lag1', 'waiting_time_lag1'
+    ]
+
+    X = pd.DataFrame(rows, columns=feat_order)
+    return X
