@@ -35,11 +35,58 @@ FLASK_ENV = production
 PORT = 5000
 ```
 
+### 4. Upload Model File
+After deployment, upload your model:
+
+1. Go to Render Dashboard → Select your service
+2. Click **Shell** tab (at the top)
+3. Run this command in the shell:
+```bash
+mkdir -p Backend/models
+```
+
+4. Then upload the model file:
+   - Go to **Files** tab
+   - Upload `queue_model.pkl` to `Backend/models/`
+   - Or use SCP if you have SSH access
+
+**Alternative (if shell upload doesn't work):**
+```bash
+# From your local terminal, after getting SSH access:
+scp queue_model.pkl user@render-instance:/app/Backend/models/
+```
+
+### 5. Restart Service
+After uploading, restart the service:
+1. Go to Render Dashboard
+2. Click the service
+3. Click **Restart** button
+4. Wait for it to come back online
+
+### 4. Deploy
 ### 4. Deploy
 Click **Deploy** and wait ~3-5 minutes. You'll get a URL like:
 ```
 https://iqueue-api.onrender.com
 ```
+
+### 5. Verify Model is Loaded
+After uploading the model file and restarting:
+```bash
+curl https://iqueue-api.onrender.com/health
+```
+
+Should return:
+```json
+{
+  "status": "healthy",
+  "model_loaded": true,
+  "data_loaded": true,
+  "timestamp": "..."
+}
+```
+
+If `model_loaded` is `false`, check Render logs for errors.
 
 ---
 
@@ -117,17 +164,28 @@ console.log(`Estimated wait: ${result.prediction} minutes`);
 
 ## Troubleshooting
 
+**Model file not found (model_loaded: false):**
+- Check model was uploaded to `Backend/models/queue_model.pkl`
+- Verify file path in shell: `ls -la Backend/models/`
+- Restart service after uploading
+
 **Build fails:**
 - Check `Backend/requirements.txt` has all dependencies
-- Make sure model file exists at `models/queue_model.pkl`
+- View Render build logs for specific errors
 
 **API returns 500 error:**
 - Check Render logs: Dashboard → Service → Logs
-- Ensure model is trained before deploying
+- Ensure model is uploaded and service was restarted
+- Verify data files exist if needed
+
+**Model predicts but returns NaN/errors:**
+- Check preprocessor can find `src/preprocess.py`
+- Verify input data format matches training data
 
 **CORS issues with frontend:**
 - Already configured with `Flask-CORS`
 - Verify frontend is calling correct API URL
+- Check browser console for actual error
 
 ---
 
