@@ -70,6 +70,7 @@ if str(SRC_DIR) not in sys.path:
 
 # Import preprocessing functions
 from Preprocessing.features import FEATURES, build_feature_dataframe
+from Prediction.patterns import build_pattern_maps, get_pattern_value
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -79,6 +80,10 @@ CORS(app)
 model = None
 df = None
 _hourly_chart_cache = None
+_queue_maps = None
+_wait_maps = None
+_avg_service_time = None
+_holiday_md = None
 
 _MODEL_KEY_DISPLAY = {
     "RandomForest": "Random Forest",
@@ -123,9 +128,108 @@ def _congestion_from_wait(wait_minutes):
     return "LOW", "GOOD - Short wait (<25 min)"
 
 
+def _monte_carlo_predict(date_val, day_name, hour, runs):
+    if model is None or _queue_maps is None or _wait_maps is None:
+        return None
+
+    day_map = {
+        "Monday": 0,
+        "Tuesday": 1,
+        "Wednesday": 2,
+        "Thursday": 3,
+        "Friday": 4,
+        "Saturday": 5,
+    }
+    if day_name not in day_map:
+        day_name = "Monday"
+    day_of_week = day_map[day_name]
+
+    week_of_month = (date_val.day - 1) // 7 + 1
+    month = date_val.month
+    angle = 2 * np.pi * (month - 1) / 12
+    month_sin = float(np.sin(angle))
+    month_cos = float(np.cos(angle))
+    days_in_month = date_val.days_in_month
+    is_end_of_month = 1 if date_val.day >= days_in_month - 2 else 0
+
+    is_holiday = 1 if _holiday_md and (month, date_val.day) in _holiday_md else 0
+    next_day = date_val + pd.Timedelta(days=1)
+    is_pre_holiday = 1 if _holiday_md and (next_day.month, next_day.day) in _holiday_md else 0
+
+    is_peak_day = 1 if day_name in ["Monday", "Friday"] else 0
+    is_weekend = 1 if day_name == "Saturday" else 0
+    if is_peak_day:
+        is_peak_hour = 1 if hour in [9, 10, 11, 13, 14, 15] else 0
+    else:
+        is_peak_hour = 1 if hour in [9, 10, 14, 15] else 0
+
+    queue_base = get_pattern_value(_queue_maps, day_name, month, week_of_month, hour, 5)
+    prev_hour = hour - 1
+    if prev_hour >= 8:
+        lag_queue_base = get_pattern_value(_queue_maps, day_name, month, week_of_month, prev_hour, queue_base)
+        lag_wait_base = get_pattern_value(_wait_maps, day_name, month, week_of_month, prev_hour, queue_base * 1.5)
+    else:
+        lag_queue_base = queue_base
+        lag_wait_base = queue_base * 1.5
+
+    service_base = float(_avg_service_time) if _avg_service_time else 35.0
+
+    queue_samples = np.random.normal(queue_base, max(1.0, queue_base * 0.15), runs)
+    queue_samples = np.clip(queue_samples, 1, None)
+
+    service_samples = np.random.normal(service_base, max(1.0, service_base * 0.10), runs)
+    service_samples = np.clip(service_samples, 5, None)
+
+    lag_queue_samples = np.random.normal(lag_queue_base, max(1.0, lag_queue_base * 0.20), runs)
+    lag_queue_samples = np.clip(lag_queue_samples, 1, None)
+
+    lag_wait_samples = np.random.normal(lag_wait_base, max(1.5, lag_wait_base * 0.20), runs)
+    lag_wait_samples = np.clip(lag_wait_samples, 5, None)
+
+    X = pd.DataFrame(
+        {
+            "hour": np.full(runs, hour),
+            "day_of_week": np.full(runs, day_of_week),
+            "week_of_month": np.full(runs, week_of_month),
+            "month": np.full(runs, month),
+            "month_sin": np.full(runs, month_sin),
+            "month_cos": np.full(runs, month_cos),
+            "is_end_of_month": np.full(runs, is_end_of_month),
+            "is_holiday": np.full(runs, is_holiday),
+            "is_pre_holiday": np.full(runs, is_pre_holiday),
+            "is_peak_day": np.full(runs, is_peak_day),
+            "queue_length_at_arrival": queue_samples,
+            "service_time_min": service_samples,
+            "is_weekend": np.full(runs, is_weekend),
+            "is_peak_hour": np.full(runs, is_peak_hour),
+            "queue_length_lag1": lag_queue_samples,
+            "waiting_time_lag1": lag_wait_samples,
+        },
+        columns=FEATURES,
+    )
+
+    wait_samples = model.predict(X)
+    wait_samples = np.clip(wait_samples, 5, 90)
+
+    mean = float(np.mean(wait_samples))
+    p10 = float(np.percentile(wait_samples, 10))
+    p50 = float(np.percentile(wait_samples, 50))
+    p90 = float(np.percentile(wait_samples, 90))
+    spread = max(1.0, p90 - p10)
+    confidence = int(max(60, min(99, round((1 - min(spread / (mean + 1e-6), 0.6)) * 100))))
+
+    return {
+        "mean": round(mean, 1),
+        "p10": round(p10, 1),
+        "p50": round(p50, 1),
+        "p90": round(p90, 1),
+        "confidence": confidence,
+    }
+
+
 def load_model_and_data():
     """Load model and training data on startup"""
-    global model, df, _hourly_chart_cache
+    global model, df, _hourly_chart_cache, _queue_maps, _wait_maps, _avg_service_time, _holiday_md
     _hourly_chart_cache = None
     try:
         # Ensure models directory exists
@@ -162,8 +266,14 @@ def load_model_and_data():
         if DATA_PATH.exists():
             df = pd.read_csv(DATA_PATH)
             df['date'] = pd.to_datetime(df['date'])
+            if 'day_name' not in df.columns:
+                df['day_name'] = df['date'].dt.day_name()
             if 'week_of_month' not in df.columns:
                 df['week_of_month'] = ((df['date'].dt.day - 1) // 7 + 1).astype(int)
+            _queue_maps = build_pattern_maps(df, 'queue_length_at_arrival')
+            _wait_maps = build_pattern_maps(df, 'waiting_time_min')
+            _avg_service_time = float(df['service_time_min'].mean()) if 'service_time_min' in df.columns else 35.0
+            _holiday_md = load_ph_holidays()
             print(f"âœ… Data loaded from {DATA_PATH}")
         else:
             print(f"âš ï¸ Data not found at {DATA_PATH}")
@@ -502,15 +612,35 @@ def predict():
         # Build feature DataFrame from input JSON
         X = build_feature_dataframe(data, holiday_calendar_path=HOLIDAY_CALENDAR_PATH)
         prediction = float(model.predict(X)[0])
+
+        date_val = pd.to_datetime(data.get("date", datetime.now().date()))
+        day_name = data.get("day_of_week") or date_val.strftime("%A")
+        hour = int(data.get("hour", 9))
+        mc_runs = int(os.environ.get("PREDICT_MC_RUNS", "500"))
+        mc = _monte_carlo_predict(date_val, day_name, hour, mc_runs) if mc_runs > 0 else None
+
+        if mc is not None:
+            prediction = float(mc["mean"])
+            confidence = int(mc["confidence"])
+            range_data = {"p10": mc["p10"], "p50": mc["p50"], "p90": mc["p90"]}
+            method = "monte_carlo"
+        else:
+            confidence = None
+            range_data = None
+            method = "point"
+
         congestion, recommendation = _congestion_from_wait(prediction)
         
         return jsonify({
             "success": True,
             "prediction": prediction,
+            "confidence": confidence,
+            "range": range_data,
             "congestion": congestion,
             "recommendation": recommendation,
             "input": data,
             "unit": "minutes",
+            "method": method,
             "timestamp": datetime.now().isoformat()
         }), 200
         

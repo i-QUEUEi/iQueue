@@ -111,9 +111,12 @@ export async function fetchLivePrediction(
   return response.json() as Promise<{
     success: boolean;
     prediction: number;
+    confidence?: number | null;
+    range?: { p10: number; p50?: number; p90: number } | null;
     congestion?: string;
     recommendation?: string;
     unit: string;
+    method?: string;
     timestamp: string;
   }>;
 }

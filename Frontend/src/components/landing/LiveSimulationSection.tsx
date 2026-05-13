@@ -50,7 +50,10 @@ export default function LiveSimulationSection() {
         return;
       }
       const predictedWait = Math.max(1, Math.round(res.prediction));
-      const confidence = Math.min(97, Math.max(82, 96 - Math.round(predictedWait / 8)));
+      const confidence =
+        typeof res.confidence === 'number'
+          ? res.confidence
+          : Math.min(97, Math.max(82, 96 - Math.round(predictedWait / 8)));
 
       const congestionRaw = res.congestion || '';
       const congestionKey = congestionRaw.toUpperCase();
@@ -63,8 +66,11 @@ export default function LiveSimulationSection() {
         congestion = 'Moderate';
         congestionColor = 'text-yellow-500';
       }
-      const recommendation = res.recommendation ||
+      const recommendation =
+        res.recommendation ||
         (predictedWait > 50 ? 'Consider visiting earlier or later' : 'Relatively favorable window based on the model');
+
+      const rangeLabel = res.range ? `${res.range.p10}-${res.range.p90} min` : null;
 
       setResult({
         waitTime: predictedWait,
@@ -72,6 +78,7 @@ export default function LiveSimulationSection() {
         congestion,
         congestionColor,
         recommendation,
+        rangeLabel,
       });
     } catch (e) {
       if ((e as { name?: string }).name === 'AbortError') {
@@ -244,6 +251,9 @@ export default function LiveSimulationSection() {
                     <p className="text-sm text-(--text-secondary) mb-1">Expected Wait Time</p>
                     <p className="text-4xl font-bold text-(--text-primary)">{result.waitTime}</p>
                     <p className="text-xs text-(--text-secondary) mt-1">minutes</p>
+                    {result.rangeLabel && (
+                      <p className="text-xs text-(--text-secondary) mt-1">Likely range: {result.rangeLabel}</p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
