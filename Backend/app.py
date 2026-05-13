@@ -614,13 +614,21 @@ def api_historical_analytics():
     if df is None:
         return jsonify({"error": "Data not loaded"}), 500
 
+    def _safe_mean(series, digits=1):
+        if series is None or len(series) == 0:
+            return 0.0
+        val = series.mean()
+        if pd.isna(val):
+            return 0.0
+        return round(float(val), digits)
+
     # Daily average by day of week (Mon-Sat)
     daily_data = []
     day_names = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri', 5: 'Sat'}
     for day_num in range(6):
         day_data = df[df['day_of_week'] == day_num]
         if len(day_data) > 0:
-            avg_wait = round(day_data['waiting_time_min'].mean(), 1)
+            avg_wait = _safe_mean(day_data['waiting_time_min'], 1)
             busy = day_num in [0, 4]
             daily_data.append({
                 "day": day_names[day_num],
@@ -633,40 +641,40 @@ def api_historical_analytics():
     for hour in range(8, 17):
         hour_data = df[df['hour'] == hour]
         if len(hour_data) > 0:
-            avg_wait = round(hour_data['waiting_time_min'].mean(), 1)
+            avg_wait = _safe_mean(hour_data['waiting_time_min'], 1)
             hourly_data.append({"hour": _hour_label(hour), "wait": avg_wait})
 
     heatmap_data = []
     for day_num in range(6):
         day_name = day_names[day_num]
         day_df = df[df['day_of_week'] == day_num]
-        morning = round(day_df[day_df['hour'].isin([8, 9, 10, 11])]['waiting_time_min'].mean(), 1)
-        afternoon = round(day_df[day_df['hour'].isin([12, 13, 14])]['waiting_time_min'].mean(), 1)
-        evening = round(day_df[day_df['hour'].isin([15, 16])]['waiting_time_min'].mean(), 1)
+        morning = _safe_mean(day_df[day_df['hour'].isin([8, 9, 10, 11])]['waiting_time_min'], 1)
+        afternoon = _safe_mean(day_df[day_df['hour'].isin([12, 13, 14])]['waiting_time_min'], 1)
+        evening = _safe_mean(day_df[day_df['hour'].isin([15, 16])]['waiting_time_min'], 1)
         heatmap_data.append({"day": day_name, "morning": morning, "afternoon": afternoon, "evening": evening})
 
-    mid = df[df['day_of_week'].isin([2, 3])]['waiting_time_min'].mean()
-    mon_mean = df[df['day_of_week'] == 0]['waiting_time_min'].mean()
+    mid = float(df[df['day_of_week'].isin([2, 3])]['waiting_time_min'].mean())
+    mon_mean = float(df[df['day_of_week'] == 0]['waiting_time_min'].mean())
     mon_pct = int(round((mon_mean / mid - 1) * 100)) if mid and mid > 0 and not pd.isna(mid) else 0
-    eom = df[df['is_end_of_month'] == 1]['waiting_time_min'].mean() if 'is_end_of_month' in df.columns else None
-    rest = df[df['is_end_of_month'] == 0]['waiting_time_min'].mean() if 'is_end_of_month' in df.columns else None
+    eom = float(df[df['is_end_of_month'] == 1]['waiting_time_min'].mean()) if 'is_end_of_month' in df.columns else None
+    rest = float(df[df['is_end_of_month'] == 0]['waiting_time_min'].mean()) if 'is_end_of_month' in df.columns else None
     eom_pct = int(round((eom / rest - 1) * 100)) if eom is not None and rest and rest > 0 and not pd.isna(eom) else 0
 
     insights = [
         {
             "title": "Mondays vs mid-week",
             "desc": f"Monday average vs Tueâ€“Thu blend ({mon_pct:+d}%)" if mon_pct else "Monday vs mid-week workload",
-            "value": f"{round(mon_mean, 0)} mins",
+            "value": f"{round(mon_mean if not pd.isna(mon_mean) else 0, 0)} mins",
         },
         {
             "title": "Late morning peak",
             "desc": "Average wait 10â€“11am window",
-            "value": f"{round(df[df['hour'].isin([10, 11])]['waiting_time_min'].mean(), 0)} mins",
+            "value": f"{round(_safe_mean(df[df['hour'].isin([10, 11])]['waiting_time_min'], 0), 0)} mins",
         },
         {
             "title": "Friday congestion",
             "desc": "Friday average wait",
-            "value": f"{round(df[df['day_of_week'] == 4]['waiting_time_min'].mean(), 0)} mins",
+            "value": f"{round(_safe_mean(df[df['day_of_week'] == 4]['waiting_time_min'], 0), 0)} mins",
         },
         {
             "title": "End-of-month effect",
