@@ -4,3 +4,5 @@ pandas
 scikit-learn
 matplotlib
 joblib
+flask
+flask-cors
