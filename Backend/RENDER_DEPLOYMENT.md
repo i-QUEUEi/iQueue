@@ -23,9 +23,9 @@
 | **Name** | `iqueue-api` (or your choice) |
 | **Environment** | Python |
 | **Region** | Choose closest to you |
-| **Branch** | `backend-lfs` |
+| **Branch** | `main` |
 | **Build Command** | `pip install -r Backend/requirements.txt` |
-| **Start Command** | `cd Backend && gunicorn app:app` |
+| **Start Command** | `gunicorn Backend.app:app` |
 | **Plan** | Free (starts with free tier) |
 
 ### 3. Environment Variables
