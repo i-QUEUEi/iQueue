@@ -1,230 +1,428 @@
-# i-QUEUE - Project Documentation & Code Walkthrough
+# iQueue — How We Built This From Scratch
 
-Detailed line-by-line code references (including loops and print statements) are in [docs/CODE_REFERENCE.md](CODE_REFERENCE.md).
-
-This document explains the full project codebase from data generation to prediction and evaluation. It lists each file, the functions (in source order), what they do, how they interact, where outputs are written, and which other files consume those outputs.
-
-Scope: covers files used in standard runs (data generation -> training -> prediction). Use this as a reference for maintainers, reviewers, or new contributors.
+> This document tells the full story of building iQueue: from the problem we faced, to generating data, cleaning it, training models, evaluating them, and finally making predictions. Every file and folder is mentioned in the order we actually worked on it.
 
 ---
 
-**Project Flow (High level):**
+## The Problem
 
-- Data generation: `data/Data_.py` -> generates `data/synthetic_lto_cdo_queue_90days.csv`
-- Preprocessing: `src/Preprocessing/preprocess.py` -> loads CSV, engineers features, returns `X, y, features`
-- Model catalog: `src/model_implementation/model_zoo/*` and `src/model_implementation/__init__.py` -> builders for candidate models
-- Training & evaluation: `src/model_implementation/train_model.py` -> trains models, evaluates robustness, saves best model and outputs
-- Prediction CLI: `src/Prediction/predict.py` -> loads saved model + data patterns, provides monte-carlo forecasts and console UI
-- Orchestration: `main.py` -> convenience entrypoint that runs training then prediction
+We wanted to answer one question: **"How long will I wait at the LTO CDO office?"**
+
+Queue waiting times at government offices like LTO (Land Transportation Office) are unpredictable. They depend on the day of the week, the time of day, whether it's near a holiday, which week of the month it is, and how many people are already in line. A simple guess ("maybe 30 minutes?") isn't useful. We needed a machine learning model that could give real, data-driven predictions.
 
 ---
 
-**Files and functions (in-sequence)**
+## Chapter 1: We Had No Real Data — So We Built Our Own
 
-File: data/Data_.py
-- Module-level configuration/constants:
-  - NUM_WEEKS, START_DATE, DATA_DIR, HOLIDAY_CALENDAR_PATH, OUTPUT_CSV_PATH, TRUE_PATTERNS - control data generation period and base hourly patterns per weekday.
-- [load_ph_holidays](data/Data_.py#L31) (calendar_path, year)
-  - Purpose: parse a human-readable Philippine holidays file (CSV-like text) and return a set of date objects for the given year.
-  - Inputs: calendar_path (Path), year (int).
-  - Output: set(datetime.date) used to apply holiday and pre-holiday modifiers during generation.
-  - Consumers: internal generation loop below; this module writes holiday-aware synthetic records.
+**Folder:** [`data/`](../data/)
+**File:** [`data/Data_.py`](../data/Data_.py)
+**Output:** [`data/synthetic_lto_cdo_queue_90days.csv`](../data/synthetic_lto_cdo_queue_90days.csv)
 
-- Generation script (module-level procedural code, executed when run):
-  - Iterates NUM_WEEKS starting at START_DATE.
-  - For Monday->Saturday, applies seasonal factors, end-of-month, holiday and pre-holiday factors, trend and wave components to compute an hourly base_wait based on TRUE_PATTERNS (one pattern per weekday for hours 8-16).
-  - For each hour, simulates num_transactions arrivals, injects noise, computes waiting_time_min, queue_length_at_arrival, service_time_min, and total_time_in_system_min.
-  - Builds a pandas.DataFrame df from generated rows.
-  - Creates lag features: queue_length_lag1, waiting_time_lag1 using groupby('date').shift(1) and fills first-row defaults per day.
-  - Adds is_weekend, fills NAs, and saves CSV to OUTPUT_CSV_PATH (data/synthetic_lto_cdo_queue_90days.csv).
+The first challenge: we had no real LTO queue logs to train on. So we did what data scientists often do early in a project — we **simulated realistic data**.
 
-Outputs:
-- data/synthetic_lto_cdo_queue_90days.csv - the core synthetic dataset used by training and prediction.
+We wrote `Data_.py` to generate 90 days of synthetic queue transactions. It's not random noise — every row is carefully constructed to reflect real patterns:
 
-Who uses it:
-- src/Preprocessing/preprocess.py and src/model_implementation/train_model.py load this CSV to train models and compute features.
+- **Mondays and Fridays are busier.** The `TRUE_PATTERNS` dictionary defines different hourly waiting-time targets for each weekday. Monday 9am has a much higher base wait than Wednesday 9am.
+- **9am–11am is peak time.** The hour loop (hours 8–16) applies hourly multipliers based on the true pattern for that day.
+- **Holidays and pre-holidays spike.** The `load_ph_holidays()` function reads [`data/2026-calendar-with-holidays-portrait-sunday-start-en-ph.csv`](../data/2026-calendar-with-holidays-portrait-sunday-start-en-ph.csv) and returns a set of dates. When the generation loop lands on a holiday, it applies a multiplier to push wait times up.
+- **End-of-month is busier.** If the date is in the last 3 days of the month, another multiplier is applied — because more people rush to renew licenses before the month ends.
+- **Noise is added.** Each simulated transaction gets small random variation so the model doesn't see perfect patterns and overfit.
 
-Notes:
-- This script is deterministic (seeded) and builds realistic patterns; it intentionally excludes Sundays.
+After generating all rows, we compute **lag features**:
+- `queue_length_lag1` — the queue length from the previous transaction that day
+- `waiting_time_lag1` — the waiting time from the previous transaction that day
+
+These are important because the queue has **momentum** — if the previous person waited 60 minutes, you probably will too.
+
+Finally, `is_weekend` is added, NaNs are dropped, and the CSV is saved. This one file — `synthetic_lto_cdo_queue_90days.csv` — is the backbone of the entire project. Everything downstream depends on it.
 
 ---
 
-File: src/Preprocessing/preprocess.py
-- Purpose: Compatibility wrapper that re-exports the refactored preprocessing helpers.
-- Why this matters: Keeps existing imports stable while the preprocessing logic is split into smaller modules.
+## Chapter 2: Cleaning the Data and Extracting Features
 
-File: src/Preprocessing/calendar.py
-- load_ph_holiday_month_days(calendar_path)
-  - Purpose: parse the holiday calendar into (month, day) tuples for fast membership checks.
+**Folder:** [`src/Preprocessing/`](../src/Preprocessing/)
+**Files:**
+- [`src/Preprocessing/calendar.py`](../src/Preprocessing/calendar.py) — holiday parser
+- [`src/Preprocessing/loader.py`](../src/Preprocessing/loader.py) — loads and cleans the CSV
+- [`src/Preprocessing/features.py`](../src/Preprocessing/features.py) — defines and extracts model features
+- [`src/Preprocessing/preprocess.py`](../src/Preprocessing/preprocess.py) — single import that bundles all of the above
 
-File: src/Preprocessing/loader.py
-- load_data(path)
-  - Purpose: read CSV at path and apply parsing & feature engineering.
-  - Steps:
-    - Parse date as datetime.
-    - Add month, month_sin, month_cos cyclic encodings.
-    - Derive is_end_of_month (last 2 days heuristic).
-    - Use calendar helper to set is_holiday and is_pre_holiday flags.
-    - Compute week_of_month (1-5) via integer math on day of month.
-    - Filter out negative waiting_time_min and queue_length_at_arrival rows.
-    - Drop NAs and print dataset diagnostics.
-  - Returns: df (cleaned pandas DataFrame).
+### Step 1: Parsing holidays
 
-File: src/Preprocessing/features.py
-- FEATURES
-  - Canonical feature order shared by training and prediction.
-- get_features(df)
-  - Returns: (X, y, features) where y is waiting_time_min.
-- build_feature_dataframe(records, holiday_calendar_path=None)
-  - Purpose: build a one-row or multi-row feature DataFrame for inference inputs.
+[`calendar.py`](../src/Preprocessing/calendar.py) contains one function: `load_ph_holiday_month_days()`. It reads the Philippine holiday calendar file and extracts `(month, day)` tuples using a regex pattern. The result is a Python `set` so membership checks (like "is January 1 a holiday?") are fast.
 
-Outputs:
-- No files saved by this module; it returns in-memory structures used by train_model.py.
+### Step 2: Loading and cleaning
 
----
+[`loader.py`](../src/Preprocessing/loader.py) — `load_data()` does the heavy lifting:
 
-File: src/model_implementation/model_zoo/__init__.py
-- [build_model_catalog](src/model_implementation/model_zoo/__init__.py#L6) (random_state)
-  - Purpose: assemble a dictionary of model name -> estimator ready for training.
-  - Uses builders from sibling modules (RandomForest, GradientBoosting, LinearRegression).
-  - Returns: {'LinearRegression': LinearRegression(), 'RandomForest': RandomForest(...), 'GradientBoosting': GradientBoosting(...)}
-  - Consumers: src/model_implementation/train_model.py.
+1. Reads the CSV into a DataFrame
+2. Parses the `date` column as a proper datetime object
+3. Extracts `month` as a number
+4. Encodes month **cyclically** using `month_sin` and `month_cos` — this is important because December (12) and January (1) are close in real life but far apart numerically. The sin/cos trick wraps them together on a circle.
+5. Flags `is_end_of_month` if the day is within 3 days of the end of the month
+6. Calls `calendar.py` to flag `is_holiday` and `is_pre_holiday` for each row
+7. Derives `week_of_month` (1–4) using integer division of the day number
+8. **Removes bad rows:** drops rows where `waiting_time_min < 0` or `queue_length_at_arrival < 0` — those are impossible in real life
+9. Drops any remaining NaN rows
+10. Prints a summary so we can verify the data looks right
 
-File: src/model_implementation/model_zoo/random_forest.py
-- [build_random_forest](src/model_implementation/model_zoo/random_forest.py#L4) (random_state, params=None)
-  - Returns a RandomForestRegressor with default hyperparameters (500 trees, max_depth 15, etc.).
-  - params can override defaults.
+### Step 3: Defining exactly what the model can see
 
-File: src/model_implementation/model_zoo/gradient_boosting.py
-- [build_gradient_boosting](src/model_implementation/model_zoo/gradient_boosting.py#L4) (random_state, params=None)
-  - Returns GradientBoostingRegressor with tuned defaults (250 trees, lr=0.05, depth=3).
+[`features.py`](../src/Preprocessing/features.py) contains the `FEATURES` list — the 16 columns the model is trained on:
 
-File: src/model_implementation/model_zoo/linear_regression.py
-- [build_linear_regression](src/model_implementation/model_zoo/linear_regression.py#L4) ()
-  - Returns LinearRegression() (baseline model).
+```
+hour, day_of_week, week_of_month, month, month_sin, month_cos,
+is_end_of_month, is_holiday, is_pre_holiday, is_peak_day,
+queue_length_at_arrival, service_time_min, is_weekend, is_peak_hour,
+queue_length_lag1, waiting_time_lag1
+```
 
-Notes:
-- These builder functions are small but central: they centralize hyperparameter choices so train_model.py can benchmark multiple model classes with consistent seeds.
+`get_features(df)` slices the DataFrame to just these 16 columns (X) and returns `waiting_time_min` as the target (y). This exact same list is reused at prediction time — which is critical because the model must see the same columns in the same order every time.
+
+`build_feature_dataframe()` is used during prediction to convert a query (e.g. "Monday, 9am, 25 people in queue") into a properly-formatted row for the model.
+
+### Step 4: The wrapper
+
+[`preprocess.py`](../src/Preprocessing/preprocess.py) is just 11 lines. It re-exports `load_data`, `get_features`, `build_feature_dataframe`, and `FEATURES` from the other three files, so any other script can do `from Preprocessing.preprocess import load_data` without needing to know the internal file structure.
 
 ---
 
-File: src/model_implementation/train_model.py
-This is the training orchestrator; major responsibilities are now split into focused modules:
+## Chapter 3: Building the Models
 
-- src/model_implementation/metrics.py
-  - compute_metrics(y_true, y_pred)
-  - Shared metric helper for MAE/RMSE/R2.
+**Folder:** [`src/model_implementation/model_zoo/`](../src/model_implementation/model_zoo/)
+**Files:**
+- [`linear_regression.py`](../src/model_implementation/model_zoo/linear_regression.py)
+- [`random_forest.py`](../src/model_implementation/model_zoo/random_forest.py)
+- [`gradient_boosting.py`](../src/model_implementation/model_zoo/gradient_boosting.py)
+- [`__init__.py`](../src/model_implementation/model_zoo/__init__.py) — assembles the model menu
+- [`src/model_implementation/__init__.py`](../src/model_implementation/__init__.py) — re-exports `build_model_catalog`
 
-- src/model_implementation/evaluation.py
-  - evaluate_data_quality(raw_df) for input checks.
-  - evaluate_model(...) for train/test/chrono/CV evaluation and feature importance.
+We didn't pick one model and hope for the best. We tested **three different model types** and let the evaluation decide which is best.
 
-- src/model_implementation/splits.py
-  - chronological_split(df, features) for time-aware splits.
+### Model 1 — Linear Regression
+[`linear_regression.py`](../src/model_implementation/model_zoo/linear_regression.py) simply returns `LinearRegression()`. This is our **baseline**. It draws a straight line through all the data. If the relationship between inputs and wait time were perfectly linear ("every extra person in queue = exactly 2 more minutes"), this would be perfect. But queue dynamics are messier than that.
 
-- src/model_implementation/plots.py
-  - plot_target_distribution, plot_day_hour_heatmap, plot_model_comparison, plot_actual_vs_predicted.
+### Model 2 — Random Forest
+[`random_forest.py`](../src/model_implementation/model_zoo/random_forest.py) builds a `RandomForestRegressor` with these settings:
+- `n_estimators=500` — 500 decision trees vote together
+- `max_depth=15` — each tree can go 15 levels deep
+- `min_samples_leaf=2` — each leaf needs at least 2 samples (prevents overfitting)
+- `max_features="sqrt"` — each tree sees only a random subset of features (adds diversity)
 
-- src/model_implementation/reporting.py
-  - write_report(...) to generate outputs/metrics.txt.
+> **Analogy:** Like asking 500 different people the same question and taking the average answer. Each person saw slightly different data, so the combined answer is more reliable than any single estimate.
 
-- src/model_implementation/samples.py
-  - sample_predictions(model, features) sanity checks.
+### Model 3 — Gradient Boosting
+[`gradient_boosting.py`](../src/model_implementation/model_zoo/gradient_boosting.py) builds a `GradientBoostingRegressor` with:
+- `n_estimators=250` — 250 trees, but each one learns from the previous tree's errors
+- `learning_rate=0.05` — small steps so it doesn't overshoot
+- `max_depth=3` — shallow trees to prevent overfitting
+- `subsample=0.9` — uses 90% of data per tree (adds randomness)
 
-The train_model.py entrypoint now wires these modules together to train, select, and save the best model.
+> **Analogy:** Like a student who re-reads only the questions they got wrong. Each tree focuses on the mistakes the previous trees made.
 
-Outputs (written by this script):
-- models/queue_model.pkl - serialized selected model (used by src/Prediction/predict.py).
-- outputs/metrics.txt - human-readable metrics & feature importance report.
-- outputs/model_comparison.csv - table used for plotting/comparison.
-- outputs/plots/* - PNG visualizations.
-
-Consumers of outputs:
-- src/Prediction/predict.py loads models/queue_model.pkl and reads data/synthetic_lto_cdo_queue_90days.csv for pattern baselines.
-
-Notes on evaluation design:
-- The script computes random-split, chronological split, and CV to produce a robust_mae metric that mixes IID and time-aware evaluation.
-
----
-
-File: src/Prediction/predict.py
-This is the CLI entrypoint that re-exports the refactored prediction modules.
-
-Core prediction modules:
-- src/Prediction/context.py
-  - Loads the trained model and historical data.
-  - Builds date-aware pattern maps and prints quick sanity checks.
-- src/Prediction/patterns.py
-  - build_pattern_maps(...) and get_pattern_value(...) for multi-level lookup fallbacks.
-- src/Prediction/inference.py
-  - predict_wait_time(...) and predict_wait_time_monte_carlo(...)
-  - get_congestion_level(...) plus date/holiday feature helpers.
-- src/Prediction/cli.py
-  - display_weekly_forecast(...), display_daily_forecast(...), find_best_time(...)
-  - parse_date_input(...) and main() menu loop.
-
-Outputs:
-- Prints to console (no file outputs). Uses models/queue_model.pkl to produce predictions.
-
-Consumers/Users:
-- CLI users: end-users running python src/Prediction/predict.py.
-- Could be invoked by higher-level services wrapping the CLI for integration.
+### The model menu
+[`model_zoo/__init__.py`](../src/model_implementation/model_zoo/__init__.py) — `build_model_catalog()` returns a dictionary:
+```python
+{
+  "LinearRegression": build_linear_regression(),
+  "RandomForest": build_random_forest(random_state),
+  "GradientBoosting": build_gradient_boosting(random_state),
+}
+```
+This is the central "menu" of candidates. The training script loops through all of them.
 
 ---
 
-File: main.py
-- Simple orchestration script that runs training then prediction:
-  - Calls python src/model_implementation/train_model.py via subprocess.run.
-  - Then calls python src/Prediction/predict.py to enter CLI.
+## Chapter 4: Training and Evaluating Every Model
 
-Notes:
-- This is intended as a quick-run convenience; in production you might separate training (batch) and prediction (service) workflows.
+**File:** [`src/model_implementation/train_model.py`](../src/model_implementation/train_model.py)
+
+This is the heart of the project. It orchestrates the entire training pipeline:
+
+1. Creates `outputs/` and `outputs/plots/` directories
+2. Loads the raw CSV and runs `evaluate_data_quality()` on it (before any cleaning)
+3. Calls `load_data()` to clean the data and add features
+4. Calls `get_features()` to extract X and y
+5. Splits into train/test sets (80/20 random split)
+6. Gets the chronological split from [`splits.py`](../src/Evaluation/splits.py)
+7. Loads the model catalog and loops through each model
+
+### The Evaluation Folder — `src/Evaluation/`
+
+**Folder:** [`src/Evaluation/`](../src/Evaluation/)
+
+This folder holds all evaluation logic, completely separate from the training script. It was designed this way so evaluation can be updated without touching training code.
+
+#### `evaluation.py` — the core evaluator
+[`src/Evaluation/evaluation.py`](../src/Evaluation/evaluation.py)
+
+`evaluate_model()` runs each model through **three different tests**:
+
+**Test 1 — Random split** ([L45–49](../src/Evaluation/evaluation.py#L45-L49))
+Trains on the 80% random train set, predicts on the 20% test set. This is the standard machine learning test.
+
+**Test 2 — Chronological split** ([L51–53](../src/Evaluation/evaluation.py#L51-L53))
+A completely separate model is cloned and trained on the oldest 80% of dates, tested on the newest 20%. This tests whether the model generalizes to future dates — much more realistic than a random split for time-based data.
+
+**Test 3 — 5-fold cross-validation** ([L55–66](../src/Evaluation/evaluation.py#L55-L66))
+Splits the training data into 5 equal chunks. Trains on 4, tests on 1. Repeats 5 times. This gives a stable average score across many different train/test combinations.
+
+All three MAE scores are averaged into **`robust_mae`** ([L75](../src/Evaluation/evaluation.py#L75)):
+```python
+robust_mae = float(np.mean([test_metrics["mae"], chrono_metrics["mae"], cv_mae]))
+```
+The model with the **lowest `robust_mae`** is selected as the winner.
+
+The function also computes **error percentiles** ([L77–80](../src/Evaluation/evaluation.py#L77-L80)) — P90, P95, and max absolute error — so we know the worst-case behavior, not just the average.
+
+It also segments errors by day and hour ([L97–105](../src/Evaluation/evaluation.py#L97-L105)) to check if the model is significantly worse on peak days vs normal days.
+
+`evaluate_data_quality()` ([L137–155](../src/Evaluation/evaluation.py#L137-L155)) checks the **raw** CSV (before any cleaning) for duplicates, missing values, negative waits, and prints target distribution statistics.
+
+#### `metrics.py` — shared error calculator
+[`src/Evaluation/metrics.py`](../src/Evaluation/metrics.py)
+
+One function: `compute_metrics(y_true, y_pred)` that returns a dictionary of MAE, RMSE, and R². Used everywhere metrics need to be calculated.
+
+#### `splits.py` — time-aware split
+[`src/Evaluation/splits.py`](../src/Evaluation/splits.py)
+
+`chronological_split()` sorts all data by date, finds all unique dates, cuts at 80%, and returns the oldest 80% as training and newest 20% as test. This is much harder to "cheat" than a random split because the model has never seen any of the test dates during training.
+
+#### `plots.py` — 4 charts saved to disk
+[`src/Evaluation/plots.py`](../src/Evaluation/plots.py)
+
+After training, four PNG charts are generated and saved to [`outputs/plots/`](../outputs/plots/):
+
+| Chart | File | What it shows |
+|---|---|---|
+| `plot_target_distribution()` | `target_distribution.png` | Histogram of all waiting times — are they mostly short or long? |
+| `plot_day_hour_heatmap()` | `day_hour_heatmap.png` | Color grid: which day+hour combinations are busiest? |
+| `plot_model_comparison()` | `model_comparison.png` | Bar chart comparing all 3 models' MAE scores side by side |
+| `plot_actual_vs_predicted()` | `actual_vs_predicted.png` | Scatter plot: actual vs predicted wait times. Points near the diagonal = good predictions |
+
+#### `reporting.py` — the full written report
+[`src/Evaluation/reporting.py`](../src/Evaluation/reporting.py)
+
+`write_report()` generates [`outputs/metrics.txt`](../outputs/metrics.txt) — a plain text file with 8 sections explaining everything: data quality, model benchmark results, baseline comparison, robust evaluation, segment error checks, why these models were chosen, why others weren't, and preprocessing rationale.
+
+#### `samples.py` — sanity check
+[`src/Evaluation/samples.py`](../src/Evaluation/samples.py)
+
+After saving the model, 6 hardcoded test cases are run through it. These are scenarios where we already know roughly what the answer should be:
+- "Monday 9am, 25 people in queue → should be ~55 min"
+- "Wednesday 8am, 4 people → should be ~9 min"
+
+If these are wildly wrong, something broke in training.
+
+### What training produces
+
+After the training pipeline finishes, these outputs are saved:
+
+| Output | Where |
+|---|---|
+| Trained model (best) | [`models/queue_model.pkl`](../models/queue_model.pkl) |
+| Model comparison table | [`outputs/model_comparison.csv`](../outputs/model_comparison.csv) |
+| Full evaluation report | [`outputs/metrics.txt`](../outputs/metrics.txt) |
+| 4 visualization charts | [`outputs/plots/*.png`](../outputs/plots/) |
 
 ---
 
-Other repository files
+## Chapter 5: Making Predictions — The User-Facing App
 
-- README.md - usage instructions and quick start (already provided).
-- requirements.txt - runtime dependencies (un-pinned): simpy, numpy, pandas, scikit-learn, matplotlib, joblib.
+**Folder:** [`src/Prediction/`](../src/Prediction/)
+**Files:**
+- [`constants.py`](../src/Prediction/constants.py) — shared settings
+- [`context.py`](../src/Prediction/context.py) — loads model and builds pattern tables
+- [`patterns.py`](../src/Prediction/patterns.py) — historical pattern lookup
+- [`inference.py`](../src/Prediction/inference.py) — builds inputs and runs predictions
+- [`cli.py`](../src/Prediction/cli.py) — the interactive menu
+- [`predict.py`](../src/Prediction/predict.py) — entry point that sets up paths and starts the CLI
+
+### `constants.py`
+[`constants.py`](../src/Prediction/constants.py) sets two values: `MONTE_CARLO_RUNS = 1000` (how many simulation runs per prediction) and `RNG = np.random.default_rng(42)` (a seeded random number generator so results are reproducible).
+
+### `context.py` — startup: loading everything
+[`context.py`](../src/Prediction/context.py) runs once when the prediction app starts:
+
+1. Loads the saved model from `models/queue_model.pkl` using `joblib.load()`
+2. Reads the original CSV back into a DataFrame
+3. Adds `week_of_month` and `month` columns
+4. Calls `build_pattern_maps()` from [`patterns.py`](../src/Prediction/patterns.py) twice — once for `queue_length_at_arrival` and once for `waiting_time_min`
+5. Loads the holiday calendar
+6. Computes `avg_service_time` from the data
+
+The pattern maps and model are stored as module-level variables so every part of the prediction code can import them.
+
+### `patterns.py` — the historical lookup table
+[`patterns.py`](../src/Prediction/patterns.py)
+
+`build_pattern_maps()` builds a 4-level nested lookup table from the training data:
+- Level 1: day name (Monday, Tuesday…)
+- Level 2: month (1–12)
+- Level 3: week of month (1–4)
+- Level 4: hour (8–16)
+
+At each leaf, it stores the **average** queue length (or wait time) from the actual data for that exact slot.
+
+`get_pattern_value()` looks up a value using all 4 levels. If data is missing at the finest level (e.g. "Tuesday, March, Week 3, 14:00" had no records), it **falls back** to coarser levels: month+day → week+day → just day+hour → finally the default value. This ensures the app always returns something sensible.
+
+### `inference.py` — the actual prediction
+[`inference.py`](../src/Prediction/inference.py)
+
+This is where the ML model gets used. There are two main functions:
+
+**`predict_wait_time()`** — single deterministic prediction:
+1. Calculates all 16 feature values for the requested date and hour (day of week, week of month, month sin/cos, holiday flags, queue from pattern lookup, lag features)
+2. Packs them into a one-row DataFrame in the exact `FEATURES` column order
+3. Calls `model.predict(X)[0]` and returns the result
+
+**`predict_wait_time_monte_carlo()`** — 1,000 simulations:
+1. Gets the same base feature values
+2. Adds **random noise** to the uncertain inputs (queue size ±15%, service time ±10%, lag features ±20%)
+3. Runs all 1,000 variations through the model at once
+4. Returns `mean`, `p10`, `p50`, `p90` — a full probability distribution
+
+> **Analogy:** Instead of saying "you'll wait exactly 32 minutes", it says "most likely 28–36 minutes, with 90% confidence". Like a weather forecast.
+
+**`get_congestion_level()`** classifies the wait time:
+- Over 45 min → 🔴 HIGH
+- 25–45 min → 🟡 MODERATE
+- Under 25 min → 🟢 LOW
+
+### `cli.py` — the interactive menu
+[`cli.py`](../src/Prediction/cli.py)
+
+`main()` runs an infinite loop showing 4 options:
+
+| Option | Function called | What it does |
+|---|---|---|
+| 1 — Weekly forecast | `display_weekly_forecast()` | Loops through all 6 working days of the week, runs Monte Carlo for each of 9 hours per day, shows best/worst times |
+| 2 — Specific date | `display_daily_forecast()` | Runs Monte Carlo for all 9 hours of one chosen date, shows a bar chart and congestion level per hour |
+| 3 — Best time | `find_best_time()` | Runs all 9 hours, finds the minimum mean wait, shows best and worst hours |
+| 4 — Exit | breaks the loop | Goodbye message |
+
+`parse_date_input()` handles user date input. It accepts `"today"` or `"YYYY-MM-DD"` format, rejects Sundays (the office is closed), and keeps asking until a valid date is entered.
+
+### `predict.py` — the entry point
+[`predict.py`](../src/Prediction/predict.py)
+
+Sets up `sys.path` so Python can find all the Prediction and Preprocessing modules regardless of where the script is run from, then imports everything and calls `main()`.
 
 ---
 
-Data & Artifact Map (where outputs are written / read)
+## Chapter 6: Tying It All Together
 
-- data/synthetic_lto_cdo_queue_90days.csv - generated by data/Data_.py; read by src/Preprocessing/loader.py and src/Prediction/context.py.
-- models/queue_model.pkl - saved by src/model_implementation/train_model.py; loaded by src/Prediction/context.py.
-- outputs/metrics.txt - written by train_model.py; human-facing summary.
-- outputs/model_comparison.csv - written by train_model.py; machine-readable table used for plotting.
-- outputs/plots/*.png - several visuals written by train_model.py (target distribution, heatmap, comparison, actual_vs_predicted).
+**File:** [`main.py`](../main.py)
 
----
+`main.py` is just 10 lines. It uses Python's `subprocess` module to run the two phases in order:
 
-How modules interact (runtime sequence)
+```python
+subprocess.run([sys.executable, "src/model_implementation/train_model.py"], check=True)
+subprocess.run([sys.executable, "src/Prediction/predict.py"], check=True)
+```
 
-1. (Optional) Run `python data/Data_.py` to regenerate dataset.
-2. Run training: `python src/model_implementation/train_model.py` OR `python main.py` which triggers the same script.
-  - `train_model.py` calls `src/Preprocessing/loader.load_data()` -> `src/Preprocessing/features.get_features()` -> builds models via `model_zoo.build_model_catalog()` -> evaluates models -> selects and joblib.dump the selected model to `models/queue_model.pkl` -> writes `outputs/*` artifacts.
-3. Run prediction: `python src/Prediction/predict.py` (or let `main.py` launch it). `context.py` loads the model and data patterns, and `cli.py` renders console forecasts.
+The `check=True` flag means if training fails, prediction won't start. This prevents the app from trying to load a model file that doesn't exist yet.
 
 ---
 
-Practical notes & recommended improvements
+## Full File and Folder Map
 
-- Pin `requirements.txt` versions for reproducibility (e.g., numpy==1.26.0, pandas==2.x, scikit-learn==1.x).
-- Add unit tests for `preprocess.load_data`, `train_model.chronological_split`, `predict.predict_wait_time_monte_carlo` with small Monte Carlo runs.
-- Add a small smoke test in CI that runs training with a smaller sample or fewer trees to ensure end-to-end compatibility.
-- Consider reducing the CI Monte Carlo runs (e.g., 50) to keep test time short.
-- Add graceful checks in `src/Prediction/predict.py` for missing `models/queue_model.pkl` with friendly instructions.
+```
+iQueue/
+│
+├── main.py                          ← Start here: runs training then prediction
+│
+├── data/
+│   ├── Data_.py                     ← Generates the 90-day synthetic dataset
+│   ├── synthetic_lto_cdo_queue_90days.csv  ← The training data (output of Data_.py)
+│   └── 2026-calendar-with-holidays-...csv  ← Philippine holiday calendar
+│
+├── src/
+│   ├── Preprocessing/
+│   │   ├── calendar.py              ← Parses holiday dates from the calendar file
+│   │   ├── loader.py                ← Loads CSV, adds features, cleans rows
+│   │   ├── features.py              ← Defines FEATURES list + builds feature DataFrames
+│   │   └── preprocess.py            ← Single import wrapper for the 3 files above
+│   │
+│   ├── model_implementation/
+│   │   ├── __init__.py              ← Re-exports build_model_catalog
+│   │   ├── train_model.py           ← Full training pipeline orchestrator
+│   │   └── model_zoo/
+│   │       ├── __init__.py          ← build_model_catalog(): assembles model menu
+│   │       ├── linear_regression.py ← Model 1: baseline linear model
+│   │       ├── random_forest.py     ← Model 2: 500-tree ensemble
+│   │       └── gradient_boosting.py ← Model 3: sequential boosted trees
+│   │
+│   └── Evaluation/
+│       ├── __init__.py              ← Makes Evaluation a Python package
+│       ├── evaluation.py            ← evaluate_model() + evaluate_data_quality()
+│       ├── metrics.py               ← compute_metrics(): MAE, RMSE, R²
+│       ├── splits.py                ← chronological_split() for time-aware testing
+│       ├── plots.py                 ← 4 chart generators (PNG output)
+│       ├── reporting.py             ← write_report(): full metrics.txt writer
+│       └── samples.py               ← sample_predictions(): sanity check runs
+│
+│   └── Prediction/
+│       ├── predict.py               ← Entry point: sets up paths, calls main()
+│       ├── constants.py             ← MONTE_CARLO_RUNS=1000, RNG seed
+│       ├── context.py               ← Loads model + builds pattern lookup tables
+│       ├── patterns.py              ← build_pattern_maps() + get_pattern_value()
+│       ├── inference.py             ← predict_wait_time() + Monte Carlo simulation
+│       └── cli.py                   ← Interactive menu (weekly/daily/best-time)
+│
+├── models/
+│   └── queue_model.pkl              ← Saved best model (output of training)
+│
+├── outputs/
+│   ├── metrics.txt                  ← Full evaluation report
+│   ├── model_comparison.csv         ← Model benchmark table
+│   └── plots/
+│       ├── target_distribution.png
+│       ├── day_hour_heatmap.png
+│       ├── model_comparison.png
+│       └── actual_vs_predicted.png
+│
+└── docs/
+    ├── PROJECT_DOCUMENTATION.md     ← This file
+    ├── CODE_REFERENCE.md            ← Detailed per-file, per-function, per-line reference
+    ├── Evaluation_detailes.md       ← Deep dive on all evaluation methods with code links
+    ├── Models_Comparison.md         ← Why RandomForest won with code evidence
+    └── PRESENTATION_REQS.md         ← Checklist of requirements vs what was built
+```
 
 ---
 
-If you'd like, I can:
+## The Full Build Sequence (Summary)
 
-- Add this file to the repo (done) and open a PR with dependency pinning and a CI smoke test.
-- Generate unit tests for `src/Preprocessing/preprocess.py` and `src/Prediction/predict.py`.
-- Create a short `CONTRIBUTING.md` with run/test steps.
+```
+Step 1: data/Data_.py
+   → Simulates 90 days of queue data with real patterns
+   → Output: data/synthetic_lto_cdo_queue_90days.csv
 
----
+Step 2: src/Preprocessing/ (called by train_model.py)
+   → calendar.py  reads the holiday calendar
+   → loader.py    cleans data, adds time/holiday/cyclic features
+   → features.py  extracts the 16-column feature matrix X and target y
 
-End of documentation.
+Step 3: src/model_implementation/model_zoo/ (called by train_model.py)
+   → Builds LinearRegression, RandomForest, GradientBoosting
 
+Step 4: src/Evaluation/ (called by train_model.py)
+   → evaluation.py  tests each model 3 ways (random + chrono + CV)
+   → metrics.py     computes MAE, RMSE, R²
+   → splits.py      handles the chronological train/test split
+   → Selects winner by lowest robust_mae
+
+Step 5: src/Evaluation/ (output phase)
+   → plots.py      saves 4 charts to outputs/plots/
+   → reporting.py  saves full report to outputs/metrics.txt
+   → samples.py    runs sanity-check predictions
+   → train_model.py saves winner to models/queue_model.pkl
+
+Step 6: src/Prediction/ (run after training)
+   → context.py    loads model + builds pattern lookup tables
+   → patterns.py   provides historical queue averages per day/hour
+   → inference.py  runs Monte Carlo predictions (1000 simulations per hour)
+   → cli.py        shows the interactive menu to the user
+```

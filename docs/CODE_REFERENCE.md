@@ -1,238 +1,353 @@
-# iQueue Code Reference (Fully Detailed Bullets)
+# iQueue Code Reference
 
-This guide is intentionally verbose. Every bullet below explains what the code does, why it matters, and how it connects to other files.
+> Think of iQueue like a **smart restaurant host**. Before you arrive, it has already studied months of past customer patterns. When you ask "how long is the wait?", it doesn't guess — it checks what day it is, what time it is, how busy it usually gets, and gives you a real answer. This document explains how all the code pieces work together to make that happen.
 
-## File Index
+---
 
-- [main.py](../main.py): Orchestrator entrypoint that runs the training pipeline first and then starts the prediction CLI; this guarantees the model artifact exists before inference begins.
-- [data/Data_.py](../data/Data_.py): Synthetic data generator that creates realistic queue transactions with temporal and holiday effects; this file is the source of the dataset consumed by training and prediction pattern baselines.
-- [src/Preprocessing/preprocess.py](../src/Preprocessing/preprocess.py): Thin compatibility wrapper that re-exports the refactored preprocessing helpers.
-- [src/Preprocessing/loader.py](../src/Preprocessing/loader.py): Loads raw CSVs and applies feature engineering/cleaning.
-- [src/Preprocessing/features.py](../src/Preprocessing/features.py): Defines canonical feature order and builds feature DataFrames for training/inference.
-- [src/Preprocessing/calendar.py](../src/Preprocessing/calendar.py): Holiday parsing helper shared by preprocessing and prediction.
-- [src/Prediction/predict.py](../src/Prediction/predict.py): User-facing forecasting CLI entrypoint (re-exports refactored prediction modules).
-- [src/Prediction/context.py](../src/Prediction/context.py): Loads model/data and builds date-aware historical pattern maps.
-- [src/Prediction/patterns.py](../src/Prediction/patterns.py): Pattern-map builders and lookup fallbacks.
-- [src/Prediction/inference.py](../src/Prediction/inference.py): Feature assembly and wait-time prediction routines.
-- [src/Prediction/cli.py](../src/Prediction/cli.py): Interactive console UI for weekly/daily/best-time views.
-- [src/model_implementation/__init__.py](../src/model_implementation/__init__.py): Package-level export file that re-exports model catalog utilities to simplify imports in the training script.
-- [src/model_implementation/train_model.py](../src/model_implementation/train_model.py): Training pipeline orchestrator that calls the modular evaluation/report/plot helpers.
-- [src/model_implementation/evaluation.py](../src/model_implementation/evaluation.py): Model evaluation logic and data-quality checks.
-- [src/model_implementation/metrics.py](../src/model_implementation/metrics.py): Metric helpers shared across training and baseline evaluation.
-- [src/model_implementation/plots.py](../src/model_implementation/plots.py): Plot generators for distribution, heatmaps, and comparisons.
-- [src/model_implementation/reporting.py](../src/model_implementation/reporting.py): Metrics report writer for training runs.
-- [src/model_implementation/splits.py](../src/model_implementation/splits.py): Chronological split helper for time-aware evaluation.
-- [src/model_implementation/samples.py](../src/model_implementation/samples.py): Sample-case prediction sanity checks.
-- [src/model_implementation/model_zoo/__init__.py](../src/model_implementation/model_zoo/__init__.py): Catalog builder that defines which model builders are active candidates during benchmarking.
-- [src/model_implementation/model_zoo/linear_regression.py](../src/model_implementation/model_zoo/linear_regression.py): Baseline model builder used to establish a simple linear reference point for comparison.
-- [src/model_implementation/model_zoo/random_forest.py](../src/model_implementation/model_zoo/random_forest.py): RandomForest builder with robust tabular defaults and optional parameter overrides for experimentation.
-- [src/model_implementation/model_zoo/gradient_boosting.py](../src/model_implementation/model_zoo/gradient_boosting.py): GradientBoosting builder used as a second nonlinear ensemble candidate with different inductive behavior than RandomForest.
-- [src/model_implementation/model_zoo/extra_trees.py](../src/model_implementation/model_zoo/extra_trees.py): ExtraTrees builder prepared for future catalog inclusion; currently defined but not active in the default model catalog.
+## 🗺️ The Big Picture: What Happens When You Run the System
 
-## File Intros (What Each File Does)
+```
+You type: python main.py
+       ↓
+[Step 1] Train the model → reads data → picks the best model → saves it
+       ↓
+[Step 2] Start predictions → loads saved model → you ask questions → it answers
+```
 
-### [main.py](../main.py)
+There are **two major phases**:
+1. **Training phase** — the system learns from past data
+2. **Prediction phase** — you interact with what it learned
 
-- Purpose: Acts as a one-command launcher so users can run the full pipeline without remembering separate training and prediction commands.
-- Primary behavior: Executes [src/model_implementation/train_model.py](../src/model_implementation/train_model.py) first, then executes [src/Prediction/predict.py](../src/Prediction/predict.py), preserving workflow order.
-- Why this matters: Prevents common runtime failures where prediction is attempted before a model exists.
-- Upstream dependencies: Relies on Python runtime and successful imports in the downstream scripts.
-- Downstream effect: Produces a trained model file through training, then immediately opens the interactive forecast interface.
+---
 
-### [data/Data_.py](../data/Data_.py)
+## 📁 File Index (Quick Map)
 
-- Purpose: Generates synthetic yet structured queue data when real operational logs are unavailable or incomplete.
-- Primary behavior: Simulates arrival transactions over weeks, days, and hours while applying seasonal, holiday, and congestion effects.
-- Why this matters: Gives the model realistic patterns to learn (weekday differences, peak-hour behavior, lag dynamics).
-- Key output: Writes [data/synthetic_lto_cdo_queue_90days.csv](../data/synthetic_lto_cdo_queue_90days.csv), which is the backbone dataset used by training and prediction baselines.
-- Downstream effect: Supplies raw rows for [src/Preprocessing/loader.py](../src/Preprocessing/loader.py) and historical pattern statistics for [src/Prediction/context.py](../src/Prediction/context.py).
+| File | What it does in one sentence |
+|---|---|
+| [main.py](../main.py) | The "start button" — runs training first, then opens the prediction app |
+| [data/Data_.py](../data/Data_.py) | Generates fake-but-realistic LTO queue data for 90 days |
+| [src/Preprocessing/loader.py](../src/Preprocessing/loader.py) | Cleans the raw data and adds useful columns (day, hour, holidays, etc.) |
+| [src/Preprocessing/features.py](../src/Preprocessing/features.py) | Defines exactly which columns the model is allowed to see |
+| [src/Preprocessing/calendar.py](../src/Preprocessing/calendar.py) | Reads a holiday list so the system knows when special days are |
+| [src/Preprocessing/preprocess.py](../src/Preprocessing/preprocess.py) | One import that brings all preprocessing steps together |
+| [src/model_implementation/train_model.py](../src/model_implementation/train_model.py) | The main trainer — runs all models, picks the best one, saves it |
+| [src/model_implementation/model_zoo/linear_regression.py](../src/model_implementation/model_zoo/linear_regression.py) | Model #1: Simple straight-line guesser (baseline) |
+| [src/model_implementation/model_zoo/random_forest.py](../src/model_implementation/model_zoo/random_forest.py) | Model #2: Group of decision trees voting together |
+| [src/model_implementation/model_zoo/gradient_boosting.py](../src/model_implementation/model_zoo/gradient_boosting.py) | Model #3: Trees that learn from each other's mistakes |
+| [src/model_implementation/model_zoo/__init__.py](../src/model_implementation/model_zoo/__init__.py) | The "model menu" — lists all models to test |
+| [src/Evaluation/evaluation.py](../src/Evaluation/evaluation.py) | Tests how good each model is using 3 different methods |
+| [src/Evaluation/metrics.py](../src/Evaluation/metrics.py) | Calculates the actual error scores (MAE, RMSE, R²) |
+| [src/Evaluation/splits.py](../src/Evaluation/splits.py) | Splits data by date order (oldest → train, newest → test) |
+| [src/Evaluation/plots.py](../src/Evaluation/plots.py) | Draws 4 charts to visualize model performance |
+| [src/Evaluation/reporting.py](../src/Evaluation/reporting.py) | Writes a full human-readable report explaining everything |
+| [src/Evaluation/samples.py](../src/Evaluation/samples.py) | Runs a few test predictions to make sure the model "makes sense" |
+| [src/Prediction/context.py](../src/Prediction/context.py) | Loads the saved model and builds a lookup table of historical patterns |
+| [src/Prediction/patterns.py](../src/Prediction/patterns.py) | Reads the lookup table to find what the queue "usually looks like" at a given time |
+| [src/Prediction/inference.py](../src/Prediction/inference.py) | Builds the input and asks the model for a prediction |
+| [src/Prediction/cli.py](../src/Prediction/cli.py) | The menu you interact with (weekly view, daily view, best time finder) |
+| [src/Prediction/predict.py](../src/Prediction/predict.py) | Entry point — sets up paths and starts the CLI |
 
-### [src/Preprocessing/preprocess.py](../src/Preprocessing/preprocess.py)
+---
 
-- Purpose: Centralizes feature construction so training and inference semantics stay consistent.
-- Primary behavior: Delegates to loader/features/calendar modules to parse dates, add holiday flags, add cyclic month encodings, derive week-of-month, and clean invalid rows.
-- Why this matters: Reduces drift between model training assumptions and what inference expects.
-- Key contract: Feature order returned here must match inference feature order in [src/Prediction/inference.py](../src/Prediction/inference.py).
-- Downstream effect: Feeds clean feature matrices into [src/model_implementation/train_model.py](../src/model_implementation/train_model.py).
+## 🔁 Phase 1: Training — "How the System Learns"
 
-### [src/model_implementation/train_model.py](../src/model_implementation/train_model.py)
+> **Analogy:** Imagine you're studying for an exam. You read all your past notes (data), practice with different study strategies (models), check which strategy gave the best score (evaluation), then write down your final notes (model file + report).
 
-- Purpose: Owns all training, evaluation, model selection, and artifact writing logic.
-- Primary behavior: Loads engineered data, evaluates multiple models across random split + chronological split + cross-validation, then persists best model.
-- Why this matters: Gives a robust quality signal instead of over-trusting one split.
-- Key outputs: [models/queue_model.pkl](../models/queue_model.pkl), [outputs/model_comparison.csv](../outputs/model_comparison.csv), [outputs/metrics.txt](../outputs/metrics.txt), and plot files in [outputs/plots](../outputs/plots).
-- Downstream effect: Saved model and reports are consumed by [src/Prediction/predict.py](../src/Prediction/predict.py) and by human review workflows.
+### Step 1 — Start the pipeline
 
-### [src/Prediction/predict.py](../src/Prediction/predict.py)
+**File:** [main.py](../main.py)
 
-- Purpose: Converts model outputs and historical patterns into actionable user guidance.
-- Primary behavior: Loads model and data, builds fallback pattern maps, runs prediction routines, and renders interactive weekly/daily/best-time views.
-- Why this matters: Users need interpretable recommendations, not raw regression outputs.
-- Inputs: Depends on trained artifact [models/queue_model.pkl](../models/queue_model.pkl) and historical dataset [data/synthetic_lto_cdo_queue_90days.csv](../data/synthetic_lto_cdo_queue_90days.csv).
-- Downstream effect: Produces console-level decision support and congestion insights.
+When you run `python main.py`, two things happen in order:
 
-### [src/model_implementation/__init__.py](../src/model_implementation/__init__.py)
+1. It runs [train_model.py](../src/model_implementation/train_model.py) first — this is where the learning happens.
+2. Only after training succeeds does it open the prediction app.
 
-- Purpose: Provides a clean package API surface.
-- Primary behavior: Re-exports catalog builder so training code can import from package root.
-- Why this matters: Keeps import paths simpler and reduces coupling to folder depth.
-- Downstream effect: Used by [src/model_implementation/train_model.py](../src/model_implementation/train_model.py) for model catalog access.
+This order matters. If training ran second, the prediction app would try to load a model that doesn't exist yet and crash.
 
-### [src/model_implementation/model_zoo/__init__.py](../src/model_implementation/model_zoo/__init__.py)
+```python
+# main.py — Line 7: Run training first
+subprocess.run([sys.executable, "src/model_implementation/train_model.py"], check=True)
 
-- Purpose: Defines active benchmark candidates in one place.
-- Primary behavior: Returns a dictionary of model name -> instantiated estimator builders.
-- Why this matters: Makes experimentation easy by changing one file when adding/removing models.
-- Downstream effect: Directly consumed by [src/model_implementation/train_model.py](../src/model_implementation/train_model.py) in model-evaluation loop.
+# main.py — Line 10: Then start predictions
+subprocess.run([sys.executable, "src/Prediction/predict.py"], check=True)
+```
 
-### [src/model_implementation/model_zoo/linear_regression.py](../src/model_implementation/model_zoo/linear_regression.py)
+---
 
-- Purpose: Supplies a minimal linear baseline candidate.
-- Primary behavior: Returns `LinearRegression()` with default settings.
-- Why this matters: Baseline performance helps quantify value from nonlinear ensembles.
-- Downstream effect: Included in active catalog and benchmarked during training.
+### Step 2 — Generate / Load the data
 
-### [src/model_implementation/model_zoo/random_forest.py](../src/model_implementation/model_zoo/random_forest.py)
+**File:** [data/Data_.py](../data/Data_.py)
 
-- Purpose: Supplies a strong nonlinear ensemble candidate.
-- Primary behavior: Builds `RandomForestRegressor` with tuned defaults and optional override dictionary.
-- Why this matters: Handles nonlinear interactions and noisy tabular relationships well.
-- Downstream effect: Often a top-performing candidate in benchmark selection.
+Since real LTO CDO queue records aren't always available, this file **simulates 90 days of realistic queue data**. It's not random noise — it's designed to match real patterns:
 
-### [src/model_implementation/model_zoo/gradient_boosting.py](../src/model_implementation/model_zoo/gradient_boosting.py)
+- Mondays and Fridays are busier (because that's how government offices work)
+- 9am–11am are peak hours
+- Holidays make queues spike
+- Some random variation is added so the model doesn't "memorize" perfect patterns
 
-- Purpose: Supplies an alternative ensemble strategy for comparison.
-- Primary behavior: Builds `GradientBoostingRegressor` with moderate learning rate and subsampling settings.
-- Why this matters: Captures residual structure differently than bagging models.
-- Downstream effect: Provides diversity in candidate behavior for robust model selection.
+> **Analogy:** It's like a movie prop department building a fake hospital room. It's not a real hospital, but everything looks and behaves like one so the actors (models) can practice realistically.
 
-### [src/model_implementation/model_zoo/extra_trees.py](../src/model_implementation/model_zoo/extra_trees.py)
+The output is saved to: `data/synthetic_lto_cdo_queue_90days.csv`
 
-- Purpose: Provides a ready-to-enable experimental candidate.
-- Primary behavior: Builds `ExtraTreesRegressor` with configured defaults.
-- Why this matters: Keeps extension path low-friction for future experiments.
-- Downstream effect: Can be added to [src/model_implementation/model_zoo/__init__.py](../src/model_implementation/model_zoo/__init__.py) when needed.
+---
 
-## Restart From Here (Slower Walkthrough)
+### Step 3 — Clean and prepare the data
 
-### Step 1: Pipeline entry
+**Files:** [loader.py](../src/Preprocessing/loader.py), [features.py](../src/Preprocessing/features.py), [calendar.py](../src/Preprocessing/calendar.py), [preprocess.py](../src/Preprocessing/preprocess.py)
 
-- [main.py#L1-L2](../main.py#L1-L2): Imports process/system modules so downstream scripts can be launched with the same interpreter context, reducing environment mismatch risk.
-- [main.py#L5](../main.py#L5): Prints startup text to indicate orchestration has begun, which helps operators distinguish startup failures from training failures.
-- [main.py#L7](../main.py#L7): Executes training before prediction; this ordering ensures model artifacts are current and available.
-- [main.py#L9](../main.py#L9): Prints handoff message to mark phase transition from batch training to interactive forecasting.
-- [main.py#L10](../main.py#L10): Starts prediction CLI only after successful training, closing the workflow loop for end users.
+Raw data is messy. This step cleans it and adds columns that make the model smarter:
 
-### Step 2: Data generator setup
+| What it adds | Why |
+|---|---|
+| `day_of_week` (0=Mon, 5=Sat) | The model needs to know which day it is |
+| `hour` (8–16) | Different hours have different wait times |
+| `week_of_month` (1–4) | End-of-month is usually busier |
+| `is_holiday`, `is_pre_holiday` | Holidays change queue behavior dramatically |
+| `month_sin`, `month_cos` | Encodes the month cyclically (December wraps back to January) |
+| `queue_length_lag1` | How long was the queue 1 transaction ago? (momentum) |
+| `waiting_time_lag1` | How long did the previous person wait? (momentum) |
+| `is_peak_day`, `is_peak_hour` | Quick flag for Mon/Fri and 9–11am |
 
-- [data/Data_.py#L1-L7](../data/Data_.py#L1-L7): Imports utilities needed for simulation math, date handling, parsing, and tabular output.
-- [data/Data_.py#L9](../data/Data_.py#L9): Seeds random number generation so results are reproducible and debugging can compare runs fairly.
-- [data/Data_.py#L12-L16](../data/Data_.py#L12-L16): Defines period and file paths that control simulation scope and output destination.
-- [data/Data_.py#L19-L26](../data/Data_.py#L19-L26): Declares core weekday/hour target patterns that represent intended operational behavior.
+Rows with negative waiting times or missing values are removed — garbage in, garbage out.
 
-### Step 3: Holiday parsing
+> **Analogy:** Think of this like a chef prepping ingredients. The raw chicken (data) needs to be washed, cut, and seasoned (cleaned + feature-engineered) before it goes in the oven (model).
 
-- [data/Data_.py#L31-L54](../data/Data_.py#L31-L54): Converts holiday text to date set for fast membership checks during simulation.
-- [data/Data_.py#L41](../data/Data_.py#L41): Iterates through each source line so parser handles calendar file as semi-structured text.
-- [data/Data_.py#L42](../data/Data_.py#L42): Uses regex extraction to map month/day fragments into normalized numeric values.
-- [data/Data_.py#L50-L53](../data/Data_.py#L50-L53): Safely skips malformed dates, preventing generator crashes and preserving run continuity.
-- [data/Data_.py#L56](../data/Data_.py#L56): Stores parsed holiday dates for repeated use by daily/hourly simulation logic.
+[calendar.py](../src/Preprocessing/calendar.py) specifically reads a text file of Philippine holidays and converts them to a set of dates so the system can quickly check "is this date a holiday?"
 
-### Step 4: Core generation loops
+---
 
-- [data/Data_.py#L62](../data/Data_.py#L62): Week loop builds medium-term variation and trend effects across the simulation horizon.
-- [data/Data_.py#L67](../data/Data_.py#L67): Day loop restricts generation to working days and applies weekday-specific behavior.
-- [data/Data_.py#L96](../data/Data_.py#L96): Hour loop introduces intraday pattern shape (morning peaks, midday dips, etc.).
-- [data/Data_.py#L110](../data/Data_.py#L110): Transaction loop creates row-level observations for model learning granularity.
+### Step 4 — Test all models
 
-### Step 5: Wait-time construction
+**Files:** [train_model.py](../src/model_implementation/train_model.py), [model_zoo/](../src/model_implementation/model_zoo/__init__.py), [evaluation.py](../src/Evaluation/evaluation.py)
 
-- [data/Data_.py#L77-L86](../data/Data_.py#L77-L86): Computes seasonal, month-end, and holiday multipliers that create realistic temporal drift.
-- [data/Data_.py#L88-L93](../data/Data_.py#L88-L93): Applies day-load/capacity coupling so nearby dates share plausible operational momentum.
-- [data/Data_.py#L97-L99](../data/Data_.py#L97-L99): Combines baseline pattern and multipliers into base_wait used by per-transaction simulation.
+Three models compete against each other:
 
-### Step 6: Row simulation details
+#### Model #1 — Linear Regression
+**File:** [linear_regression.py](../src/model_implementation/model_zoo/linear_regression.py)
 
-- [data/Data_.py#L111-L113](../data/Data_.py#L111-L113): Creates concrete arrival timestamps, enabling sort order and lag feature derivation later.
-- [data/Data_.py#L115-L119](../data/Data_.py#L115-L119): Adds bounded noise and clipping so values vary naturally without unrealistic extremes.
-- [data/Data_.py#L122-L127](../data/Data_.py#L122-L127): Maps wait levels to queue-size ranges, preserving correlation between queue and wait.
-- [data/Data_.py#L130-L132](../data/Data_.py#L130-L132): Adds nonlinear congestion amplification for long queues, improving realism.
-- [data/Data_.py#L135-L140](../data/Data_.py#L135-L140): Sets service-time ranges conditional on congestion state.
-- [data/Data_.py#L142-L160](../data/Data_.py#L142-L160): Appends finalized row dictionary with all fields needed downstream.
+> **Analogy:** Drawing a straight line through all the data points. Simple, fast, and easy to explain. It works if the relationship is roughly linear (e.g. "more people in queue = longer wait"). It won't capture complex patterns though.
 
-### Step 7: Post-processing
+#### Model #2 — Random Forest
+**File:** [random_forest.py](../src/model_implementation/model_zoo/random_forest.py)
 
-- [data/Data_.py#L163](../data/Data_.py#L163): Converts accumulated records into DataFrame for vectorized transforms.
-- [data/Data_.py#L166](../data/Data_.py#L166): Sorts chronologically, which is required for meaningful lag calculation.
-- [data/Data_.py#L169-L170](../data/Data_.py#L169-L170): Builds lag features per date group to encode short-term dynamics.
-- [data/Data_.py#L173-L184](../data/Data_.py#L173-L184): Initializes first-row lag defaults to avoid null edge cases at day boundaries.
-- [data/Data_.py#L186](../data/Data_.py#L186): Clears any residual missing values for training safety.
-- [data/Data_.py#L189](../data/Data_.py#L189): Adds weekend indicator used by model features.
-- [data/Data_.py#L192](../data/Data_.py#L192): Persists dataset for preprocess/training/pattern lookup consumers.
+> **Analogy:** Ask 100 different people for their opinion, then take the majority vote. Each "person" is a decision tree trained on slightly different data. The combined answer is more reliable than any single tree.
 
-### Step 8: Verification output meaning
+Handles non-linear patterns naturally (e.g. "Monday mornings are bad BUT only during the last week of the month").
 
-- [data/Data_.py#L58-L60](../data/Data_.py#L58-L60): Start banner confirms generator phase and run context.
-- [data/Data_.py#L194-L195](../data/Data_.py#L194-L195): Summary confirms scale and date range validity.
-- [data/Data_.py#L198-L202](../data/Data_.py#L198-L202): Weekday means validate high-level pattern intent.
-- [data/Data_.py#L208-L212](../data/Data_.py#L208-L212): Monday vs Wednesday hourly comparison validates differential workload behavior.
-- [data/Data_.py#L214-L217](../data/Data_.py#L214-L217): Completion banner provides explicit next action for pipeline continuation.
+#### Model #3 — Gradient Boosting
+**File:** [gradient_boosting.py](../src/model_implementation/model_zoo/gradient_boosting.py)
 
-## Detailed Explanations
+> **Analogy:** Imagine a student who keeps reviewing only the questions they got wrong. Each new tree in gradient boosting focuses on fixing the previous tree's mistakes. It's slower to train but often more accurate.
 
-### src/Preprocessing (modularized)
+The model "menu" that lists all three lives in [model_zoo/\_\_init\_\_.py](../src/model_implementation/model_zoo/__init__.py).
 
-- [calendar.py](../src/Preprocessing/calendar.py): Parses the holiday calendar into (month, day) tuples.
-- [loader.py](../src/Preprocessing/loader.py): Loads raw CSVs and applies date/holiday/seasonal feature engineering plus data cleaning.
-- [features.py](../src/Preprocessing/features.py): Defines the canonical feature order and builds feature DataFrames for training/inference.
-- [preprocess.py](../src/Preprocessing/preprocess.py): Thin wrapper that re-exports the above helpers for compatibility.
+---
 
-### src/model_implementation/train_model.py
+### Step 5 — Evaluate each model (3 different ways)
 
-- [src/model_implementation/train_model.py#L18-L30](../src/model_implementation/train_model.py#L18-L30): Declares canonical input/output paths so all artifacts are written to predictable locations.
-- [src/model_implementation/train_model.py#L34-L39](../src/model_implementation/train_model.py#L34-L39): Provides shared metric computation helper reused across train/test/baseline comparisons.
-- [src/model_implementation/train_model.py#L42-L44](../src/model_implementation/train_model.py#L42-L44): Creates output directories preemptively to avoid write-time failures.
-- [src/model_implementation/train_model.py#L47-L65](../src/model_implementation/train_model.py#L47-L65): Computes data health summary for report transparency.
-- [src/model_implementation/train_model.py#L68-L129](../src/model_implementation/train_model.py#L68-L129): Implements plot generators for distribution, heatmap, model comparison, and fit quality.
-- [src/model_implementation/train_model.py#L132-L152](../src/model_implementation/train_model.py#L132-L152): Extracts feature importance using native model capability or permutation fallback.
-- [src/model_implementation/train_model.py#L155-L240](../src/model_implementation/train_model.py#L155-L240): Evaluates each candidate comprehensively and computes robust selection score.
-- [src/model_implementation/train_model.py#L243-L262](../src/model_implementation/train_model.py#L243-L262): Builds chronological split to test temporal generalization.
-- [src/model_implementation/train_model.py#L265-L301](../src/model_implementation/train_model.py#L265-L301): Runs fixed sample-case sanity checks on selected model behavior.
-- [src/model_implementation/train_model.py#L304-L377](../src/model_implementation/train_model.py#L304-L377): Writes detailed metrics and rationale report for auditability.
-- [src/model_implementation/train_model.py#L380-L452](../src/model_implementation/train_model.py#L380-L452): Orchestrates the full training lifecycle and persists chosen model.
+**File:** [evaluation.py](../src/Evaluation/evaluation.py)
 
-### src/Prediction (modularized)
+Just checking accuracy on one test set is not enough — a model might get lucky. So each model is tested **3 ways**:
 
-- [context.py](../src/Prediction/context.py): Loads model/data and builds pattern maps for date-aware lookups.
-- [patterns.py](../src/Prediction/patterns.py): Pattern-map construction and fallback lookup logic.
-- [inference.py](../src/Prediction/inference.py): Feature assembly and prediction routines (deterministic + Monte Carlo).
-- [cli.py](../src/Prediction/cli.py): Interactive CLI with weekly/daily/best-time views.
-- [predict.py](../src/Prediction/predict.py): Entry point that re-exports the above modules.
+#### Way 1 — Random Split (Lines 48–49)
+Randomly shuffle all data, put 80% in training and 20% in testing.
+> **Analogy:** Shuffle a deck of cards and deal 20% out as your "quiz cards." The model hasn't seen them before.
 
-### model_zoo and init files
+#### Way 2 — Chronological Split (Lines 51–53, using [splits.py](../src/Evaluation/splits.py))
+Use the **oldest 80% of dates** for training and the **newest 20%** for testing.
+> **Analogy:** Study using notes from January–October, then take the November–December exam. This tests whether the model can handle future dates, not just random ones it hasn't memorized.
 
-- [src/model_implementation/model_zoo/linear_regression.py#L4-L5](../src/model_implementation/model_zoo/linear_regression.py#L4-L5): Creates linear baseline candidate for reference performance.
-- [src/model_implementation/model_zoo/random_forest.py#L4-L15](../src/model_implementation/model_zoo/random_forest.py#L4-L15): Creates random forest candidate with practical defaults and override support.
-- [src/model_implementation/model_zoo/gradient_boosting.py#L4-L14](../src/model_implementation/model_zoo/gradient_boosting.py#L4-L14): Creates gradient boosting candidate for residual-focused modeling.
-- [src/model_implementation/model_zoo/extra_trees.py#L4-L15](../src/model_implementation/model_zoo/extra_trees.py#L4-L15): Defines optional extra trees candidate for future catalog extension.
-- [src/model_implementation/model_zoo/__init__.py#L6-L11](../src/model_implementation/model_zoo/__init__.py#L6-L11): Assembles active model candidates consumed by training benchmark loop.
-- [src/model_implementation/__init__.py#L1](../src/model_implementation/__init__.py#L1): Re-exports model catalog API for cleaner package-level imports.
+The chronological split logic in [splits.py](../src/Evaluation/splits.py) sorts by date and cuts at 80% of unique dates — so even if some dates have more rows than others, the split stays fair.
 
-## Recommended Reading Order
+#### Way 3 — 5-Fold Cross-Validation (Lines 55–66)
+Split the data into 5 equal chunks. Train on 4, test on 1. Repeat 5 times, rotating which chunk is the test. Average the results.
+> **Analogy:** Take 5 different practice exams from different tutors. Your average score across all 5 is more reliable than any single exam.
 
-- [main.py](../main.py): Start here to understand runtime order and why training precedes prediction.
-- [data/Data_.py](../data/Data_.py): Continue here to understand how the dataset itself is generated and validated.
-- [src/Preprocessing/preprocess.py](../src/Preprocessing/preprocess.py): Then inspect feature engineering and the exact model input contract.
-- [src/model_implementation/train_model.py](../src/model_implementation/train_model.py): Next, study evaluation strategy and model selection logic.
-- [src/Prediction/predict.py](../src/Prediction/predict.py): Then inspect inference-time feature assembly and user-facing forecasting behavior.
-- [src/model_implementation/model_zoo](../src/model_implementation/model_zoo): Finally, review builder modules to understand candidate configuration options.
+All three results are averaged into one **`robust_mae`** score (Line 75):
+```python
+robust_mae = float(np.mean([test_metrics["mae"], chrono_metrics["mae"], cv_mae]))
+```
+The model with the **lowest `robust_mae`** wins and gets saved.
 
-## Dependency Handoff Map
+---
 
-- [data/Data_.py#L192](../data/Data_.py#L192): Writes dataset consumed by preprocessing/training and historical-pattern inference flows.
-- [src/Preprocessing/loader.py](../src/Preprocessing/loader.py): Returns cleaned feature-ready rows consumed by training pipeline entry.
-- [src/model_implementation/model_zoo/__init__.py#L6-L11](../src/model_implementation/model_zoo/__init__.py#L6-L11): Supplies active candidate dictionary consumed by training benchmark loop.
-- [src/model_implementation/train_model.py#L434](../src/model_implementation/train_model.py#L434): Persists selected model artifact loaded by prediction module startup.
-- [src/model_implementation/train_model.py#L442-L443](../src/model_implementation/train_model.py#L442-L443): Persists benchmark/report artifacts used for analysis and documentation.
-- [src/Prediction/cli.py](../src/Prediction/cli.py): Consumes trained model and pattern maps to produce user-facing forecast decisions.
+### Step 6 — Evaluate the data itself
 
+**File:** [evaluation.py — Lines 137–155](../src/Evaluation/evaluation.py#L137-L155)
+
+Before training, `evaluate_data_quality()` checks the **raw CSV** for problems:
+
+- How many rows and columns?
+- Any duplicate rows?
+- Any missing values?
+- Any negative waiting times (which are impossible in real life)?
+- What is the average, min, max, and spread of waiting times?
+
+This gets written to `outputs/metrics.txt` so you can audit your data quality.
+
+---
+
+### Step 7 — Generate charts
+
+**File:** [plots.py](../src/Evaluation/plots.py)
+
+Four charts are saved to `outputs/plots/`:
+
+| Chart | File | What it shows |
+|---|---|---|
+| Waiting time distribution | `target_distribution.png` | Are most waits short or long? Any outliers? |
+| Day × Hour heatmap | `day_hour_heatmap.png` | Which day + hour combinations are the busiest? |
+| Model comparison | `model_comparison.png` | Side-by-side bar chart of all 3 models' MAE scores |
+| Actual vs Predicted | `actual_vs_predicted.png` | How close are predictions to reality? Points near the diagonal line = good |
+
+All 4 are triggered from [train_model.py Lines 113–116](../src/model_implementation/train_model.py#L113-L116).
+
+---
+
+### Step 8 — Write the report
+
+**File:** [reporting.py](../src/Evaluation/reporting.py)
+
+`write_report()` generates `outputs/metrics.txt` with these sections:
+
+| Section | Lines | What's in it |
+|---|---|---|
+| DATA EVALUATION | [L11–22](../src/Evaluation/reporting.py#L11-L22) | Row count, duplicates, missing values, wait time stats |
+| MODEL BENCHMARK | [L24–34](../src/Evaluation/reporting.py#L24-L34) | All 3 models ranked by MAE/RMSE/R² |
+| BASELINE COMPARISON | [L36–39](../src/Evaluation/reporting.py#L36-L39) | What score a "just guess the average" model would get |
+| ROBUST EVALUATION | [L41–52](../src/Evaluation/reporting.py#L41-L52) | The winning model's full test results (random + chrono + percentile errors) |
+| SEGMENT ERROR CHECKS | [L54–58](../src/Evaluation/reporting.py#L54-L58) | Is the model worse on peak days/hours vs normal ones? |
+| WHY THESE MODELS | [L60–63](../src/Evaluation/reporting.py#L60-L63) | Plain-English justification for each model chosen |
+| WHY NOT OTHERS | [L65–68](../src/Evaluation/reporting.py#L65-L68) | Why neural networks, scaling, one-hot encoding weren't used |
+| PREPROCESSING CHOICES | [L70–73](../src/Evaluation/reporting.py#L70-L73) | Why lag features, week_of_month, and filtering were done |
+| FEATURE IMPORTANCE | [L75–77](../src/Evaluation/reporting.py#L75-L77) | Which input columns matter most to the winning model |
+
+---
+
+### Step 9 — Sanity check predictions
+
+**File:** [samples.py](../src/Evaluation/samples.py)
+
+After saving the model, 6 hardcoded test cases are run through it (Lines 7–14). These are scenarios where you already know the expected answer, like:
+
+- "Monday 9am with 25 people in queue → should be around 55 min"
+- "Wednesday 8am with 4 people → should be around 9 min"
+
+If these numbers are completely off, something went wrong in training.
+
+---
+
+## 🔮 Phase 2: Prediction — "How the System Answers Your Questions"
+
+> **Analogy:** A trained doctor (the model) has finished studying (training). Now patients walk in (you ask questions) and the doctor gives advice based on everything they learned.
+
+### Step 1 — Load the model and build pattern maps
+
+**File:** [context.py](../src/Prediction/context.py)
+
+When the prediction app starts, it:
+1. Loads the saved model from `models/queue_model.pkl`
+2. Reads the original CSV data
+3. Builds a **lookup table** of historical patterns organized by: month → week-of-month → day → hour
+
+> **Analogy:** The doctor not only uses their knowledge (model) but also keeps a reference chart on the wall: "On average, Monday mornings in week 1 of January look like THIS."
+
+This lookup table is used to fill in queue-related features when making predictions.
+
+---
+
+### Step 2 — Look up historical patterns
+
+**File:** [patterns.py](../src/Prediction/patterns.py)
+
+When you ask about a specific date and time, this file checks:
+- What month is it? → What week of the month? → What day? → What hour?
+- Then returns the average queue length and average wait time from real historical data for that slot.
+
+If the exact slot has no data (e.g. the data only covers 90 days), it falls back to a broader average — so it always returns something reasonable.
+
+---
+
+### Step 3 — Build inputs and predict
+
+**File:** [inference.py](../src/Prediction/inference.py)
+
+This is where the actual prediction happens. For each hour you're asking about:
+
+1. It assembles a row of features (day, hour, holiday flags, queue size from patterns, etc.) — the exact same format the model was trained on.
+2. It passes that row to the ML model.
+3. The model outputs a predicted wait time in minutes.
+
+It also runs **Monte Carlo simulation** — it runs the prediction 1,000 times with small random variations, then gives you a confidence range (P10 to P90).
+
+> **Analogy:** Instead of saying "the wait is exactly 32 minutes," it says "it's usually between 28 and 36 minutes" — like a weather forecast saying "60% chance of rain."
+
+---
+
+### Step 4 — Show results to the user
+
+**File:** [cli.py](../src/Prediction/cli.py)
+
+This is the menu interface you see in the terminal. It has 3 options:
+
+| Option | What it does |
+|---|---|
+| Weekly forecast | Shows all 6 days of a chosen week with best/worst times |
+| Specific date | Shows hour-by-hour breakdown for one date |
+| Best time finder | Tells you the single best hour to visit on a given date |
+
+The results use emoji-coded congestion levels:
+- 🟢 LOW — under 25 min
+- 🟡 MODERATE — 25–45 min
+- 🔴 HIGH — over 45 min
+
+---
+
+## 📐 Error Metrics Explained Simply
+
+| Metric | What it means | Good value |
+|---|---|---|
+| **MAE** (Mean Absolute Error) | On average, how many minutes off is the prediction? | Lower = better. Under 10 min is great. |
+| **RMSE** (Root Mean Squared Error) | Like MAE but punishes big mistakes more | Lower = better |
+| **R²** (R-squared) | How much of the wait time variation does the model explain? | 1.0 = perfect, 0 = no better than guessing the average |
+| **P90 error** | 90% of predictions are within this many minutes of the truth | Tells you the "worst normal case" |
+
+---
+
+## 🔗 How the Files Connect (Data Flow)
+
+```
+data/Data_.py
+   → writes: data/synthetic_lto_cdo_queue_90days.csv
+        ↓
+src/Preprocessing/loader.py + features.py + calendar.py
+   → cleans data, adds features
+        ↓
+src/model_implementation/train_model.py
+   → tests all 3 models using Evaluation/
+   → saves best model to: models/queue_model.pkl
+   → saves charts to: outputs/plots/
+   → saves report to: outputs/metrics.txt
+        ↓
+src/Prediction/context.py
+   → loads queue_model.pkl + CSV
+   → builds pattern lookup table
+        ↓
+src/Prediction/inference.py
+   → builds feature rows → asks model → gets wait time
+        ↓
+src/Prediction/cli.py
+   → shows you weekly/daily forecasts and best times
+```
+
+---
+
+## 📖 Recommended Reading Order
+
+1. [main.py](../main.py) — Start here. Just 10 lines. Understand what runs and in what order.
+2. [data/Data_.py](../data/Data_.py) — See how the training data is made and what patterns it simulates.
+3. [src/Preprocessing/loader.py](../src/Preprocessing/loader.py) — Understand what cleaning and feature engineering is applied.
+4. [src/Evaluation/evaluation.py](../src/Evaluation/evaluation.py) — See the 3-way evaluation strategy and how `robust_mae` is computed.
+5. [src/model_implementation/train_model.py](../src/model_implementation/train_model.py) — The full training pipeline in one place.
+6. [src/Prediction/inference.py](../src/Prediction/inference.py) — How a prediction is made at query time.
+7. [src/Prediction/cli.py](../src/Prediction/cli.py) — How the interface presents results to users.

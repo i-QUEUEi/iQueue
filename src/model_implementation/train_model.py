@@ -13,17 +13,17 @@ if str(SRC_DIR) not in sys.path:
 
 from Preprocessing.preprocess import get_features, load_data
 from model_implementation import build_model_catalog
-from model_implementation.evaluation import evaluate_data_quality, evaluate_model
-from model_implementation.metrics import compute_metrics
-from model_implementation.plots import (
+from Evaluation.evaluation import evaluate_data_quality, evaluate_model
+from Evaluation.metrics import compute_metrics
+from Evaluation.plots import (
     plot_actual_vs_predicted,
     plot_day_hour_heatmap,
     plot_model_comparison,
     plot_target_distribution,
 )
-from model_implementation.reporting import write_report
-from model_implementation.samples import sample_predictions
-from model_implementation.splits import chronological_split
+from Evaluation.reporting import write_report
+from Evaluation.samples import sample_predictions
+from Evaluation.splits import chronological_split
 
 DATA_PATH = ROOT_DIR / "data" / "synthetic_lto_cdo_queue_90days.csv"
 MODEL_PATH = ROOT_DIR / "models" / "queue_model.pkl"
