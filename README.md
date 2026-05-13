@@ -6,7 +6,7 @@ Queue waiting-time forecasting CLI for LTO CDO.
 
 - Synthetic queue dataset in [data/synthetic_lto_cdo_queue_90days.csv](data/synthetic_lto_cdo_queue_90days.csv)
 - Multi-model benchmark trainer with robust evaluation in [src/model_implementation/train_model.py](src/model_implementation/train_model.py)
-- Monte Carlo uncertainty simulation in [src/predict.py](src/predict.py)
+- Monte Carlo uncertainty simulation in [src/Prediction/predict.py](src/Prediction/predict.py)
 
 ## Prerequisites
 
@@ -63,7 +63,7 @@ python src/model_implementation/train_model.py
 ### Option C: Predict only (if model already exists)
 
 ```bash
-python src/predict.py
+python src/Prediction/predict.py
 ```
 
 ## Optional: Regenerate Synthetic Data
@@ -74,7 +74,7 @@ Only do this if you intentionally want a new generated dataset.
 cd data
 python Data_.py
 cd ..
-python src/train_model.py
+python src/model_implementation/train_model.py
 ```
 
 ## Generated Outputs
@@ -90,13 +90,13 @@ python src/train_model.py
 git pull
 venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python src/predict.py
+python src/Prediction/predict.py
 ```
 
 Retrain only when:
 
 - data generation changed in [data/Data_.py](data/Data_.py)
-- feature engineering changed in [src/preprocess.py](src/preprocess.py)
+- feature engineering changed in [src/Preprocessing/preprocess.py](src/Preprocessing/preprocess.py)
 - model settings changed in [src/model_implementation/train_model.py](src/model_implementation/train_model.py)
 
 ## CLI Notes
@@ -110,6 +110,7 @@ Retrain only when:
 - `ModuleNotFoundError`:
 	- Activate venv and reinstall requirements.
 - `FileNotFoundError: models/queue_model.pkl`:
-	- Run `python src/train_model.py` first.
+	- Run `python src/model_implementation/train_model.py` first.
 - Imports unresolved in VS Code:
 	- Select the same interpreter as the project venv.
+

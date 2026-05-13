@@ -58,4 +58,5 @@ See `RENDER_DEPLOYMENT.md` for step-by-step guide.
 
 - ⚠️ Model file must exist before deploying (app.py will warn if missing)
 - ⚠️ Data files needed for predictions to work correctly
-- ⚠️ Keep `src/preprocess.py` in root (backend imports it)
+- ⚠️ Keep `src/Preprocessing/preprocess.py` in root (backend imports it)
+

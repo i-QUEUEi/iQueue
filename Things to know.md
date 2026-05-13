@@ -100,8 +100,8 @@ Saved to: `data/synthetic_lto_cdo_queue_90days.csv`
 
 **Description:** Cleaning, transforming, and formatting data — handling missing values, encoding categorical variables, normalizing features.
 
-### Tool: `src/preprocess.py` + `data/Data_.py`
-Code reference: [src/preprocess.py](src/preprocess.py), [data/Data_.py](data/Data_.py)
+### Tool: `src/Preprocessing/preprocess.py` + `data/Data_.py`
+Code reference: [src/Preprocessing/preprocess.py](src/Preprocessing/preprocess.py), [data/Data_.py](data/Data_.py)
 
 ### 2a. Cleaning (`preprocess.py → load_data()`)
 - Parses `date` column into proper datetime format
@@ -370,8 +370,8 @@ So when the report says data evaluation, it means the dataset itself. When it sa
 
 **Description:** Deploying the final trained model into a real-world environment.
 
-### Current Deployment: CLI Application (`src/predict.py`)
-Code reference: [src/predict.py](src/predict.py), [main.py](main.py)
+### Current Deployment: CLI Application (`src/Prediction/predict.py`)
+Code reference: [src/Prediction/predict.py](src/Prediction/predict.py), [main.py](main.py)
 
 The trained model is loaded and served through an interactive command-line interface:
 
@@ -407,7 +407,7 @@ Display: congestion level + recommendation + likely range
 
 ### Monte Carlo Improvement in Deployment
 
-The CLI now runs a **Monte Carlo uncertainty simulation** in `src/predict.py` for each hourly forecast:
+The CLI now runs a **Monte Carlo uncertainty simulation** in `src/Prediction/predict.py` for each hourly forecast:
 
 - Uses **1,000 simulation runs** per hour (`MONTE_CARLO_RUNS = 1000`)
 - Perturbs operational inputs (queue length, service time, lag features)
@@ -436,7 +436,7 @@ Mean predicted wait ≤ 25 min  →  🟢 LOW       — ✅ GOOD
 ### Simulation Scope Clarification
 
 - `data/Data_.py` simulates and generates the **training dataset** (historical synthetic transactions).
-- `src/predict.py` simulates **prediction uncertainty** at runtime using Monte Carlo.
+- `src/Prediction/predict.py` simulates **prediction uncertainty** at runtime using Monte Carlo.
 - Both are valid, but they solve different problems:
         - Data generation simulation -> model training input
         - Monte Carlo simulation -> forecast confidence/range output
@@ -477,3 +477,6 @@ IQUEUE/
 ├── main.py                                ← Entry point
 └── Things to know.md                      ← This file
 ```
+
+
+

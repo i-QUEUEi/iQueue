@@ -26,7 +26,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 # Import preprocessing functions
-from preprocess import get_features, build_feature_dataframe
+from Preprocessing.features import build_feature_dataframe
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -154,7 +154,7 @@ def predict():
             }), 400
         
         # Build feature DataFrame from input JSON
-        X = build_feature_dataframe(data)
+        X = build_feature_dataframe(data, holiday_calendar_path=HOLIDAY_CALENDAR_PATH)
         prediction = model.predict(X)[0]
         
         return jsonify({
@@ -194,7 +194,7 @@ def batch_predict():
             return jsonify({"error": "No predictions provided"}), 400
 
         # Build feature DataFrame for all items at once
-        X = build_feature_dataframe(predictions_input)
+        X = build_feature_dataframe(predictions_input, holiday_calendar_path=HOLIDAY_CALENDAR_PATH)
         preds = model.predict(X)
         results = []
         for item, pred in zip(predictions_input, preds):
