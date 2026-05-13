@@ -88,6 +88,12 @@ Should return:
 
 If `model_loaded` is `false`, check Render logs for errors.
 
+Important: `MODEL_URL` must be a direct file download link, not a Hugging Face page URL. Use the `resolve` form, for example:
+```text
+https://huggingface.co/rhnl/iqueue-model/resolve/main/queue_model.pkl
+```
+The `blob` URL opens the file page, which makes Render download HTML instead of the `.pkl`.
+
 ---
 
 ## Testing Your API

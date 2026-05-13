@@ -111,6 +111,10 @@ def load_ph_holidays():
     return holiday_md
 
 
+# Load once when the module is imported so gunicorn workers initialize the model.
+load_model_and_data()
+
+
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
@@ -272,8 +276,6 @@ def server_error(error):
 
 
 if __name__ == '__main__':
-    load_model_and_data()
-    
     # Get port from environment or default to 5000
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('FLASK_ENV') != 'production'
