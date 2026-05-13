@@ -85,7 +85,10 @@ export type LivePredictInput = {
   isHoliday?: boolean;
 };
 
-export async function fetchLivePrediction(input: LivePredictInput) {
+export async function fetchLivePrediction(
+  input: LivePredictInput,
+  options?: { signal?: AbortSignal }
+) {
   const hour = parseInt(input.time.split(':')[0], 10);
   const date = input.isHoliday ? HOLIDAY_DEMO_DATE : DEMO_DATE_BY_DAY[input.day] || '2026-05-13';
   const body = {
@@ -99,6 +102,7 @@ export async function fetchLivePrediction(input: LivePredictInput) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: options?.signal,
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
@@ -107,6 +111,8 @@ export async function fetchLivePrediction(input: LivePredictInput) {
   return response.json() as Promise<{
     success: boolean;
     prediction: number;
+    congestion?: string;
+    recommendation?: string;
     unit: string;
     timestamp: string;
   }>;

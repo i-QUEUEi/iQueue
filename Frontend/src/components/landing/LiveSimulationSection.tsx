@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import MaterialSymbol from './MaterialSymbol';
 import { fetchLivePrediction } from '../../lib/api';
@@ -14,6 +14,8 @@ export default function LiveSimulationSection() {
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
+  const controllerRef = useRef<AbortController | null>(null);
 
   const offices = ['LTO CDO', 'BIR CDO', 'SSS CDO', 'PNP CDO', 'DFA CDO'];
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -24,40 +26,63 @@ export default function LiveSimulationSection() {
   };
 
   const handlePredict = async () => {
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    if (controllerRef.current) {
+      controllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    controllerRef.current = controller;
+
     setLoading(true);
     setError(null);
+    setResult(null);
     try {
-      const res = await fetchLivePrediction({
+      const res = await fetchLivePrediction(
+        {
         day: inputs.day,
         time: inputs.time,
         isHoliday: inputs.isHoliday,
-      });
+        },
+        { signal: controller.signal }
+      );
+      if (requestIdRef.current !== requestId) {
+        return;
+      }
       const predictedWait = Math.max(1, Math.round(res.prediction));
       const confidence = Math.min(97, Math.max(82, 96 - Math.round(predictedWait / 8)));
 
+      const congestionRaw = res.congestion || '';
+      const congestionKey = congestionRaw.toUpperCase();
       let congestion = 'Low';
       let congestionColor = 'text-green-500';
-      if (predictedWait > 50) {
+      if (congestionKey.includes('HIGH')) {
         congestion = 'High';
         congestionColor = 'text-red-500';
-      } else if (predictedWait > 30) {
+      } else if (congestionKey.includes('MODERATE')) {
         congestion = 'Moderate';
         congestionColor = 'text-yellow-500';
       }
+      const recommendation = res.recommendation ||
+        (predictedWait > 50 ? 'Consider visiting earlier or later' : 'Relatively favorable window based on the model');
 
       setResult({
         waitTime: predictedWait,
         confidence,
         congestion,
         congestionColor,
-        recommendation:
-          predictedWait > 50 ? 'Consider visiting earlier or later' : 'Relatively favorable window based on the model',
+        recommendation,
       });
     } catch (e) {
+      if ((e as { name?: string }).name === 'AbortError') {
+        return;
+      }
       setError(e instanceof Error ? e.message : 'Prediction failed');
       setResult(null);
     } finally {
-      setLoading(false);
+      if (requestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   };
 
@@ -255,7 +280,13 @@ export default function LiveSimulationSection() {
               </motion.div>
             ) : (
               <div className="text-center space-y-4 py-10 text-lg">
-                    <p className="text-(--text-secondary)">Configure inputs and click "Run Prediction" to see ML forecasting in action</p>
+                {loading ? (
+                  <p className="text-(--text-secondary)">Running prediction…</p>
+                ) : (
+                  <p className="text-(--text-secondary)">
+                    Configure inputs and click "Run Prediction" to see ML forecasting in action
+                  </p>
+                )}
               </div>
             )}
           </motion.div>

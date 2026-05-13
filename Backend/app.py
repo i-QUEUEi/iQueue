@@ -115,6 +115,14 @@ _FEATURE_CHART_COLORS = [
 ]
 
 
+def _congestion_from_wait(wait_minutes):
+    if wait_minutes > 45:
+        return "HIGH", "AVOID - Very long queues (45+ min)"
+    if wait_minutes > 25:
+        return "MODERATE", "CAUTION - Moderate wait (25-45 min)"
+    return "LOW", "GOOD - Short wait (<25 min)"
+
+
 def load_model_and_data():
     """Load model and training data on startup"""
     global model, df, _hourly_chart_cache
@@ -493,11 +501,14 @@ def predict():
         
         # Build feature DataFrame from input JSON
         X = build_feature_dataframe(data, holiday_calendar_path=HOLIDAY_CALENDAR_PATH)
-        prediction = model.predict(X)[0]
+        prediction = float(model.predict(X)[0])
+        congestion, recommendation = _congestion_from_wait(prediction)
         
         return jsonify({
             "success": True,
-            "prediction": float(prediction),
+            "prediction": prediction,
+            "congestion": congestion,
+            "recommendation": recommendation,
             "input": data,
             "unit": "minutes",
             "timestamp": datetime.now().isoformat()
