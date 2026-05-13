@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import re
+from urllib.request import urlretrieve
 
 import joblib
 import pandas as pd
@@ -12,7 +13,8 @@ from flask_cors import CORS
 
 # Setup paths - Backend folder is root for deployment
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "models" / "queue_model.pkl"
+MODEL_PATH = Path(os.environ.get("MODEL_PATH", BASE_DIR / "models" / "queue_model.pkl"))
+MODEL_URL = os.environ.get("MODEL_URL", None)
 DATA_PATH = BASE_DIR / "data" / "synthetic_lto_cdo_queue_90days.csv"
 HOLIDAY_CALENDAR_PATH = BASE_DIR / "data" / "2026-calendar-with-holidays-portrait-sunday-start-en-ph.csv"
 
@@ -38,11 +40,23 @@ def load_model_and_data():
     """Load model and training data on startup"""
     global model, df
     try:
+        # Ensure models directory exists
+        MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Download model from URL if it doesn't exist locally but URL is provided
+        if not MODEL_PATH.exists() and MODEL_URL:
+            print(f"⬇️ Downloading model from {MODEL_URL}...")
+            try:
+                urlretrieve(MODEL_URL, MODEL_PATH)
+                print(f"✅ Model downloaded to {MODEL_PATH}")
+            except Exception as e:
+                print(f"❌ Failed to download model: {e}")
+        
         if MODEL_PATH.exists():
             model = joblib.load(MODEL_PATH)
             print(f"✅ Model loaded from {MODEL_PATH}")
         else:
-            print(f"⚠️ Model not found at {MODEL_PATH}. Please train the model first.")
+            print(f"⚠️ Model not found at {MODEL_PATH}. Set MODEL_URL env var or train the model first.")
             
         if DATA_PATH.exists():
             df = pd.read_csv(DATA_PATH)
