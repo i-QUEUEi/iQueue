@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import MaterialSymbol from './MaterialSymbol';
+import { fetchLivePrediction } from '../../lib/api';
 
 export default function LiveSimulationSection() {
   const [inputs, setInputs] = useState({
@@ -11,6 +12,8 @@ export default function LiveSimulationSection() {
   });
 
   const [result, setResult] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const offices = ['LTO CDO', 'BIR CDO', 'SSS CDO', 'PNP CDO', 'DFA CDO'];
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -20,35 +23,42 @@ export default function LiveSimulationSection() {
     setInputs((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handlePredict = () => {
-    // Simulate ML inference
-    const dayMultiplier = inputs.day === 'Monday' || inputs.day === 'Friday' ? 2 : 0.8;
-    const timeHour = parseInt(inputs.time.split(':')[0]);
-    const timeMultiplier =
-      timeHour >= 9 && timeHour <= 11 ? 1.5 : timeHour >= 14 && timeHour <= 15 ? 1.3 : 0.7;
-    const holidayMultiplier = inputs.isHoliday ? 0.6 : 1;
+  const handlePredict = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetchLivePrediction({
+        day: inputs.day,
+        time: inputs.time,
+        isHoliday: inputs.isHoliday,
+      });
+      const predictedWait = Math.max(1, Math.round(res.prediction));
+      const confidence = Math.min(97, Math.max(82, 96 - Math.round(predictedWait / 8)));
 
-    const baseWait = 35;
-    const predictedWait = Math.round(baseWait * dayMultiplier * timeMultiplier * holidayMultiplier);
-    const confidence = Math.round(85 + Math.random() * 5);
+      let congestion = 'Low';
+      let congestionColor = 'text-green-500';
+      if (predictedWait > 50) {
+        congestion = 'High';
+        congestionColor = 'text-red-500';
+      } else if (predictedWait > 30) {
+        congestion = 'Moderate';
+        congestionColor = 'text-yellow-500';
+      }
 
-    let congestion = 'Low';
-    let congestionColor = 'text-green-500';
-    if (predictedWait > 50) {
-      congestion = 'High';
-      congestionColor = 'text-red-500';
-    } else if (predictedWait > 30) {
-      congestion = 'Moderate';
-      congestionColor = 'text-yellow-500';
+      setResult({
+        waitTime: predictedWait,
+        confidence,
+        congestion,
+        congestionColor,
+        recommendation:
+          predictedWait > 50 ? 'Consider visiting earlier or later' : 'Relatively favorable window based on the model',
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Prediction failed');
+      setResult(null);
+    } finally {
+      setLoading(false);
     }
-
-    setResult({
-      waitTime: predictedWait,
-      confidence,
-      congestion,
-      congestionColor,
-      recommendation: predictedWait > 50 ? 'Consider visiting earlier or later' : 'Good time to visit',
-    });
   };
 
   return (
@@ -181,13 +191,15 @@ export default function LiveSimulationSection() {
               {/* Predict Button */}
               <motion.button
                 onClick={handlePredict}
-                className="w-full p-4 bg-gradient-to-r from-red-600 to-orange-600 rounded-lg font-bold text-lg hover:shadow-2xl hover:shadow-red-600/50 transition-all flex items-center justify-center gap-2"
+                disabled={loading}
+                className="w-full p-4 bg-gradient-to-r from-red-600 to-orange-600 rounded-lg font-bold text-lg hover:shadow-2xl hover:shadow-red-600/50 transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:pointer-events-none"
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
               >
                 <MaterialSymbol icon="send" className="text-[20px]" />
-                Run Prediction
+                {loading ? 'Running…' : 'Run Prediction'}
               </motion.button>
+              {error && <p className="text-sm text-red-400">{error}</p>}
             </div>
           </motion.div>
 
@@ -235,8 +247,8 @@ export default function LiveSimulationSection() {
                       <p className="text-(--text-primary) font-semibold">Random Forest</p>
                     </div>
                     <div>
-                      <p className="text-(--text-secondary)">Latency</p>
-                      <p className="text-(--text-primary) font-semibold">42ms</p>
+                      <p className="text-(--text-secondary)">Source</p>
+                      <p className="text-(--text-primary) font-semibold">Backend /predict</p>
                     </div>
                   </div>
                 </div>
