@@ -4,6 +4,7 @@ from pathlib import Path
 from datetime import datetime
 import re
 from urllib.request import urlretrieve
+import zipfile
 
 import joblib
 import pandas as pd
@@ -47,8 +48,21 @@ def load_model_and_data():
         if not MODEL_PATH.exists() and MODEL_URL:
             print(f"⬇️ Downloading model from {MODEL_URL}...")
             try:
-                urlretrieve(MODEL_URL, MODEL_PATH)
-                print(f"✅ Model downloaded to {MODEL_PATH}")
+                # Download to temp file
+                download_path = MODEL_PATH.parent / "model_download.tmp"
+                urlretrieve(MODEL_URL, download_path)
+                
+                # If it's a zip, extract it
+                if str(download_path).endswith('.zip'):
+                    print(f"📦 Extracting model...")
+                    with zipfile.ZipFile(download_path, 'r') as zip_ref:
+                        zip_ref.extractall(MODEL_PATH.parent)
+                    download_path.unlink()  # Delete temp zip
+                else:
+                    # Rename temp file to model path
+                    download_path.rename(MODEL_PATH)
+                
+                print(f"✅ Model ready at {MODEL_PATH}")
             except Exception as e:
                 print(f"❌ Failed to download model: {e}")
         
@@ -56,7 +70,7 @@ def load_model_and_data():
             model = joblib.load(MODEL_PATH)
             print(f"✅ Model loaded from {MODEL_PATH}")
         else:
-            print(f"⚠️ Model not found at {MODEL_PATH}. Set MODEL_URL env var or train the model first.")
+            print(f"⚠️ Model not found at {MODEL_PATH}. Set MODEL_URL env var to a zip file URL or train the model first.")
             
         if DATA_PATH.exists():
             df = pd.read_csv(DATA_PATH)
