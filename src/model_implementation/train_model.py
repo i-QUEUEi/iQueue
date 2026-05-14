@@ -1,3 +1,15 @@
+"""train_model.py — The master orchestrator of the iQueue ML training pipeline.
+
+This script runs the complete pipeline in 6 steps:
+1. Check data quality (audit the raw CSV)
+2. Load and preprocess data (clean + engineer features in RAM)
+3. Split data (random 80/20 + chronological 80/20)
+4. Train and evaluate all 3 models (with 3-way evaluation each)
+5. Display benchmark results and select the winner
+6. Generate outputs (charts, report, save model to .pkl)
+
+Usage: python train_model.py (or called from main.py)
+"""
 from pathlib import Path
 import sys
 
@@ -6,11 +18,14 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+# ==================== IMPORT PATH SETUP ====================
+# Add the src/ directory to Python's import path so we can find our modules
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+# Import our custom modules from the project
 from Preprocessing.preprocess import get_features, load_data
 from model_implementation import build_model_catalog
 from Evaluation.evaluation import evaluate_data_quality, evaluate_model
@@ -25,52 +40,77 @@ from Evaluation.reporting import write_report
 from Evaluation.samples import sample_predictions
 from Evaluation.splits import chronological_split
 
-DATA_PATH = ROOT_DIR / "data" / "synthetic_lto_cdo_queue_90days.csv"
-MODEL_PATH = ROOT_DIR / "models" / "queue_model.pkl"
-OUTPUTS_DIR = ROOT_DIR / "outputs"
-PLOTS_DIR = OUTPUTS_DIR / "plots"
+# ==================== FILE PATHS ====================
+DATA_PATH = ROOT_DIR / "data" / "synthetic_lto_cdo_queue_90days.csv"   # Input CSV
+MODEL_PATH = ROOT_DIR / "models" / "queue_model.pkl"                    # Output model file
+OUTPUTS_DIR = ROOT_DIR / "outputs"                                      # Report + CSV output
+PLOTS_DIR = OUTPUTS_DIR / "plots"                                       # Chart images output
 
+# Seed for reproducibility — ensures identical results every run
 RANDOM_STATE = 42
 
 
 def ensure_output_dirs():
+    """Create the outputs/ and outputs/plots/ directories if they don't exist."""
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def main():
+    """Run the complete 6-step training pipeline."""
     print("\n" + "=" * 70)
     print("🤖 iQueue — ML Training Pipeline")
     print("=" * 70)
 
     ensure_output_dirs()
 
+    # ===== STEP 1/6: DATA QUALITY AUDIT =====
+    # Read the RAW CSV (before any cleaning) and compute 14 health statistics.
+    # This catches problems like missing values, duplicates, and impossible values.
     print("\n📂 [Step 1/6] Checking data quality...")
     raw_df = pd.read_csv(DATA_PATH)
     summary = evaluate_data_quality(raw_df)
     print(f"   Rows: {summary['rows']:,}  |  Duplicates: {summary['duplicate_rows']}  |  Missing: {summary['missing_cells']}")
     print(f"   Wait time — Mean: {summary['target_mean']:.1f} min, Std: {summary['target_std']:.1f} min, Max: {summary['target_max']:.1f} min")
 
+    # ===== STEP 2/6: LOAD AND PREPROCESS =====
+    # load_data() reads CSV → adds feature columns → removes bad rows → returns DataFrame in RAM.
+    # get_features() extracts the 16 input columns (X) and target (y) from the DataFrame.
+    # IMPORTANT: The original CSV is NEVER modified. All changes are in-memory only.
     print("\n🔧 [Step 2/6] Loading and preprocessing data...")
     df = load_data(DATA_PATH)
     X, y, features = get_features(df)
     print(f"   Training features: {len(features)} columns")
     print(f"   Target column: waiting_time_min")
 
+    # ===== STEP 3/6: SPLIT DATA =====
+    # Create TWO different splits for evaluation:
+    # 1. Random 80/20 split — for general accuracy testing
+    # 2. Chronological 80/20 split — oldest dates for training, newest for testing
     print("\n✂️  [Step 3/6] Splitting data...")
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=RANDOM_STATE)
     chrono_train, chrono_test, time_train_dates, time_test_dates = chronological_split(df, features)
     print(f"   Random split  — Train: {len(X_train):,} rows | Test: {len(X_test):,} rows")
     print(f"   Chrono split  — Train: {time_train_dates} dates | Test: {time_test_dates} dates")
 
+    # ===== STEP 4/6: TRAIN AND EVALUATE ALL MODELS =====
+    # For each of the 3 models (LinearRegression, RandomForest, GradientBoosting):
+    #   - Train on random split
+    #   - Train on chronological split
+    #   - Run 5-fold cross-validation
+    #   - Compute robust_mae = average of all 3 methods
+    # The model with the LOWEST robust_mae wins.
     print("\n🏋️  [Step 4/6] Training and evaluating all models...")
     print("   (Each model runs: random split + chronological split + 5-fold CV)")
     models = build_model_catalog(RANDOM_STATE)
-    results = []
-    selected_result = None
+    results = []          # List of result dictionaries for all models
+    selected_result = None  # Will hold the winning model's results
 
+    # Loop through each model in the catalog
     for name, model in models.items():
         print(f"\n   ┌─ 🔄 Now training: {name}...")
+
+        # evaluate_model() handles all 3 evaluation methods internally
         result = evaluate_model(
             name,
             model,
@@ -83,31 +123,39 @@ def main():
             features,
             RANDOM_STATE,
         )
+
+        # Print results for this model
         print(f"   │   Random split  → MAE: {result['test_metrics']['mae']:.2f} min  |  R²: {result['test_metrics']['r2']:.4f}")
         print(f"   │   Chrono split  → MAE: {result['chrono_metrics']['mae']:.2f} min  |  R²: {result['chrono_metrics']['r2']:.4f}")
         print(f"   │   5-Fold CV     → MAE: {result['cv_mae']:.2f} min  |  R²: {result['cv_r2']:.4f}")
         print(f"   │")
-        # --- Model-specific internal computation values ---
+
+        # --- Print model-specific internal details ---
         fitted = result["model"]
         if name == "LinearRegression":
+            # Show the formula and top 5 coefficients (which features shift wait time most)
             print(f"   │   📐 Formula: ŷ = β₀ + β₁x₁ + β₂x₂ + ... + β₁₆x₁₆")
             print(f"   │   Intercept (β₀)  : {fitted.intercept_:.4f}")
             coef_pairs = sorted(zip(features, fitted.coef_), key=lambda x: abs(x[1]), reverse=True)
             print(f"   │   Top coefficients (how much each feature shifts wait time):")
             for feat, coef in coef_pairs[:5]:
-                direction = "↑" if coef > 0 else "↓"
+                direction = "↑" if coef > 0 else "↓"  # ↑ = increases wait, ↓ = decreases wait
                 print(f"   │     {feat:<30} β = {coef:+.4f}  {direction}")
+
         elif name == "RandomForest":
+            # Show tree count, depth stats, and top 5 feature importances
             print(f"   │   🌲 Formula: ŷ = average of {fitted.n_estimators} decision trees")
-            depths = [t.get_depth() for t in fitted.estimators_]
+            depths = [t.get_depth() for t in fitted.estimators_]  # Get depth of each tree
             print(f"   │   Trees        : {fitted.n_estimators}  |  Max depth: {fitted.max_depth}")
             print(f"   │   Actual depths: min={min(depths)}, avg={sum(depths)/len(depths):.1f}, max={max(depths)}")
             print(f"   │   Top feature importances (how much each feature reduces prediction error):")
             fi = result["feature_importance"].head(5)
             for _, row in fi.iterrows():
-                bar = "█" * int(row["importance"] * 40)
+                bar = "█" * int(row["importance"] * 40)  # Visual bar proportional to importance
                 print(f"   │     {row['feature']:<30} {row['importance']:.4f}  {bar}")
+
         elif name == "GradientBoosting":
+            # Show the sequential formula, stage count, and learning rate
             print(f"   │   🚀 Formula: ŷ = F₀ + η·h₁(x) + η·h₂(x) + ... + η·h₂₅₀(x)")
             print(f"   │   Trees (stages): {fitted.n_estimators_}  |  Learning rate (η): {fitted.learning_rate}")
             print(f"   │   Max depth per tree: {fitted.max_depth}  |  Subsample: {fitted.subsample}")
@@ -116,7 +164,10 @@ def main():
             for _, row in fi.iterrows():
                 bar = "█" * int(row["importance"] * 40)
                 print(f"   │     {row['feature']:<30} {row['importance']:.4f}  {bar}")
+
         print(f"   └─ ✅ Robust MAE: {result['robust_mae']:.2f} min")
+
+        # Collect results for the comparison table
         results.append(
             {
                 "model": name,
@@ -136,9 +187,12 @@ def main():
             }
         )
 
+        # Track the model with the lowest robust_mae (the winner)
         if selected_result is None or result["robust_mae"] < selected_result["robust_mae"]:
             selected_result = result
 
+    # ===== STEP 5/6: DISPLAY BENCHMARK RESULTS =====
+    # Sort all models by robust_mae and display a comparison table
     results_df = pd.DataFrame(results).sort_values("robust_mae")
     selected_model = selected_result["name"]
 
@@ -153,12 +207,14 @@ def main():
             f"   {row['model']:<22} {row['robust_mae']:>10.2f}   {row['test_mae']:>8.2f}   {row['chrono_test_mae']:>10.2f}   {row['test_r2']:>7.4f}{marker}"
         )
 
+    # Compute baseline: what if we always guessed the average wait time?
     baseline_value = y_train.mean()
     baseline_test_pred = np.full(y_test.shape, baseline_value, dtype=float)
     baseline_metrics = compute_metrics(y_test, baseline_test_pred)
     print(f"\n   Baseline (always guess avg): MAE = {baseline_metrics['mae']:.2f} min  |  R² = {baseline_metrics['r2']:.4f}")
     print(f"   Best model ({selected_model}) beats baseline by {baseline_metrics['mae'] - selected_result['test_metrics']['mae']:.2f} min MAE")
 
+    # Display the winning model's full details
     print("\n" + "=" * 70)
     print(f"✅ Selected: {selected_model}")
     print(f"   Test MAE        : {selected_result['test_metrics']['mae']:.2f} min")
@@ -169,9 +225,13 @@ def main():
     print(f"   Max error       : {selected_result['max_abs_error']:.2f} min")
     print("=" * 70)
 
+    # Save the winning model to disk as a .pkl file
+    # joblib.dump() serializes the entire model object (all trees, weights, etc.)
     joblib.dump(selected_result["model"], MODEL_PATH)
     print(f"\n💾 Model saved → {MODEL_PATH}")
 
+    # ===== STEP 6/6: GENERATE OUTPUTS =====
+    # Create 4 visualization charts + report text file + comparison CSV
     print("\n📈 [Step 6/6] Generating outputs...")
     plot_target_distribution(df, PLOTS_DIR)
     print("   ✅ target_distribution.png")
@@ -182,12 +242,15 @@ def main():
     plot_actual_vs_predicted(y_test.to_numpy(), selected_result["test_pred"], selected_model, PLOTS_DIR)
     print("   ✅ actual_vs_predicted.png")
 
+    # Save the comparison table as CSV and the full report as text
     results_df.to_csv(OUTPUTS_DIR / "model_comparison.csv", index=False)
     write_report(summary, results_df, selected_result, baseline_metrics, time_train_dates, time_test_dates, OUTPUTS_DIR)
     print(f"   ✅ metrics.txt and model_comparison.csv saved")
 
+    # Run sanity check: 6 hardcoded test cases with known expected answers
     sample_predictions(selected_result["model"], features)
 
+    # Final summary
     print("\n" + "=" * 70)
     print("🎉 Training complete! All outputs saved.")
     print(f"   Model   : {MODEL_PATH}")
@@ -196,5 +259,6 @@ def main():
     print("=" * 70)
 
 
+# Allow running this file directly: python train_model.py
 if __name__ == "__main__":
     main()
