@@ -1,5 +1,4 @@
 ﻿import os
-import sys
 from pathlib import Path
 from datetime import datetime
 import re
@@ -63,14 +62,9 @@ def _outputs_dir():
 DATA_PATH = _resolve_data_csv()
 HOLIDAY_CALENDAR_PATH = _resolve_holiday_calendar()
 
-# Add preprocessing module to path (stays in root src)
-SRC_DIR = PROJECT_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
-
-# Import preprocessing functions
-from Preprocessing.features import FEATURES, build_feature_dataframe
-from Prediction.patterns import build_pattern_maps, get_pattern_value
+# Import backend-local helpers so Backend/ can deploy independently.
+from preprocessing.features import FEATURES, build_feature_dataframe
+from patterns import build_pattern_maps, get_pattern_value
 
 # Initialize Flask app
 app = Flask(__name__)
