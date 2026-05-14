@@ -14,7 +14,71 @@ This project benchmarks `LinearRegression`, `GradientBoosting`, and `RandomFores
 
 All three are assembled into one dictionary at [model_zoo/\_\_init\_\_.py — L6–11](../src/model_implementation/model_zoo/__init__.py#L6-L11) and looped over in [train_model.py — L57–90](../src/model_implementation/train_model.py#L57-L90).
 
+
 ---
+
+## Model Pipelines: How They Work
+
+Each model processes the 16 input features differently. Understanding these "pipelines" helps explain why RandomForest is the superior choice for this specific data.
+
+### 📐 Linear Regression Pipeline (Simple Arithmetic)
+This model treats every relationship as a straight line. It is fast and transparent but cannot see "combinations" of features.
+
+```mermaid
+graph LR
+    F["16 Features<br>(X)"] --> M["Weighting<br>(Multiply each by β)"]
+    M --> S["Summation<br>(Add all + Intercept)"]
+    S --> P["Final Prediction<br>(y)"]
+```
+
+1.  **Multiply:** Each feature (like `queue_length`) is multiplied by its weight (Beta).
+2.  **Sum:** All these products are added up.
+3.  **Adjust:** The `Intercept` is added to center the result.
+4.  **Simplicity:** It assumes that if `queue_length` increases by 1, the wait *always* increases by the same amount, regardless of whether it's Monday or Wednesday.
+
+### 🌲 Random Forest Pipeline (Parallel Wisdom)
+Our winning model. It uses **Bagging** (Bootstrap Aggregating) to combine 500 different perspectives simultaneously.
+
+```mermaid
+graph TD
+    F["16 Features"] --> T1["Tree 1<br>(Random Subset)"]
+    F --> T2["Tree 2<br>(Random Subset)"]
+    F --> T3["..."]
+    F --> T500["Tree 500<br>(Random Subset)"]
+    
+    T1 --> AVG["Average<br>Calculator"]
+    T2 --> AVG
+    T3 --> AVG
+    T500 --> AVG
+    
+    AVG --> P["Final Prediction<br>(Robust Average)"]
+```
+
+1.  **Diversification:** 500 decision trees are built in parallel. Each tree only sees a random piece of the data.
+2.  **Interaction:** Trees can learn rules like *"IF hour < 10 AND day = Monday, THEN wait is high."*
+3.  **Averaging:** By averaging 500 different "opinions," the model cancels out random noise and outlier errors.
+4.  **Stability:** This is why it performs so consistently across both random and chronological splits.
+
+### 🚀 Gradient Boosting Pipeline (Sequential Correction)
+A sophisticated "self-correcting" system that uses **Boosting** to learn from its own mistakes.
+
+```mermaid
+graph LR
+    F["Input"] --> G["Initial Guess<br>(Global Average)"]
+    G --> T1["Tree 1<br>(Fixes Guess)"]
+    T1 --> T2["Tree 2<br>(Fixes Tree 1)"]
+    T2 --> T3["..."]
+    T3 --> T250["Tree 250<br>(Final Polish)"]
+    T250 --> P["Final Prediction"]
+```
+
+1.  **Iterative Learning:** It builds 250 trees one-by-one. Tree 2 is specifically designed to fix the errors made by Tree 1.
+2.  **Small Steps:** Each tree only makes a tiny 5% correction (`learning_rate=0.05`). This prevents the model from "overreacting" to any single data point.
+3.  **Refinement:** It starts with a broad guess and slowly "sharpens" the prediction as more trees are added.
+4.  **Precision vs. Bias:** While very precise, it is slightly less robust than the Forest here because it relies too heavily on the "lag" features to make its corrections.
+
+---
+
 
 ## Head-to-Head Results
 
