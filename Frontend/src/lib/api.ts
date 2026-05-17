@@ -11,60 +11,124 @@ function apiRootUrl(): string {
   return base.endsWith('/api') ? base.slice(0, -4) : base.replace(/\/api$/, '');
 }
 
+// ---------------------------------------------------------------------------
+// Simple in-memory cache
+// ---------------------------------------------------------------------------
+// - Static endpoints (model perf, historical, etc.) → TTL_SESSION (no expiry)
+// - Weekly forecast                                 → TTL_30MIN per week key
+// - Live Simulation                                 → never cached (interactive)
+// ---------------------------------------------------------------------------
+
+const TTL_SESSION = Infinity;   // never expires within a page load
+
+interface CacheEntry<T> { data: T; timestamp: number; ttl: number }
+const _cache = new Map<string, CacheEntry<unknown>>();
+
+function cacheGet<T>(key: string): T | undefined {
+  const entry = _cache.get(key) as CacheEntry<T> | undefined;
+  if (!entry) return undefined;
+  if (entry.ttl !== Infinity && Date.now() - entry.timestamp > entry.ttl) {
+    _cache.delete(key);
+    return undefined;
+  }
+  return entry.data;
+}
+
+function cacheSet<T>(key: string, data: T, ttl: number) {
+  _cache.set(key, { data, timestamp: Date.now(), ttl });
+}
+
+/** Fetch with cache. If the result is already cached and still fresh, return it immediately. */
+async function cachedFetch<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  ttl: number
+): Promise<T> {
+  const hit = cacheGet<T>(key);
+  if (hit !== undefined) return hit;
+  const data = await fetcher();
+  cacheSet(key, data, ttl);
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Static endpoints — cached for entire session
+// ---------------------------------------------------------------------------
+
 export async function fetchModelPerformance() {
-  try {
+  return cachedFetch('model-performance', async () => {
     const response = await fetch(`${API_BASE_URL}/model-performance`);
     if (!response.ok) throw new Error('Failed to fetch model performance');
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching model performance:', error);
-    throw error;
-  }
+    return response.json();
+  }, TTL_SESSION);
 }
 
 export async function fetchFeatureImportance() {
-  try {
+  return cachedFetch('feature-importance', async () => {
     const response = await fetch(`${API_BASE_URL}/feature-importance`);
     if (!response.ok) throw new Error('Failed to fetch feature importance');
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching feature importance:', error);
-    throw error;
-  }
+    return response.json();
+  }, TTL_SESSION);
 }
 
 export async function fetchHistoricalAnalytics() {
-  try {
+  return cachedFetch('historical-analytics', async () => {
     const response = await fetch(`${API_BASE_URL}/historical-analytics`);
     if (!response.ok) throw new Error('Failed to fetch historical analytics');
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching historical analytics:', error);
-    throw error;
-  }
+    return response.json();
+  }, TTL_SESSION);
 }
 
 export async function fetchPredictiveAnalytics() {
-  try {
+  return cachedFetch('predictive-analytics', async () => {
     const response = await fetch(`${API_BASE_URL}/predictive-analytics`);
     if (!response.ok) throw new Error('Failed to fetch predictive analytics');
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching predictive analytics:', error);
-    throw error;
-  }
+    return response.json();
+  }, TTL_SESSION);
 }
 
 export async function fetchDatasetSummary() {
-  try {
+  return cachedFetch('dataset-summary', async () => {
     const response = await fetch(`${API_BASE_URL}/dataset-summary`);
     if (!response.ok) throw new Error('Failed to fetch dataset summary');
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching dataset summary:', error);
-    throw error;
-  }
+    return response.json();
+  }, TTL_SESSION);
 }
+
+// ---------------------------------------------------------------------------
+// Weekly forecast — cached 30 min per week key
+// ---------------------------------------------------------------------------
+
+export async function fetchWeeklyForecast(date: string) {
+  return cachedFetch(`weekly-forecast:${date}`, async () => {
+    const root = apiRootUrl();
+    const response = await fetch(`${root}/api/weekly-forecast?date=${date}`);
+    if (!response.ok) throw new Error('Failed to fetch weekly forecast');
+    return response.json();
+  }, TTL_SESSION) as Promise<{
+    weekLabel: string;
+    weekOf: string;
+    days: Array<{
+      date: string;
+      dayName: string;
+      shortDate: string;
+      isHoliday: boolean;
+      overall: number | null;
+      congestion: string;
+      bestTime: string | null;
+      bestWait: number | null;
+      bestP10: number | null;
+      bestP90: number | null;
+      worstTime: string | null;
+      worstWait: number | null;
+      hourly: Array<{ hour: string; wait: number; p10: number; p90: number }>;
+    }>;
+  }>;
+}
+
+// ---------------------------------------------------------------------------
+// Live Simulation — NOT cached (interactive, user expects fresh result)
+// ---------------------------------------------------------------------------
 
 /** Returns the real calendar date for the given day name within the current week (Mon-Sat). */
 function getDateForDayThisWeek(dayName: string): string {
@@ -130,30 +194,5 @@ export async function fetchLivePrediction(
     unit: string;
     method?: string;
     timestamp: string;
-  }>;
-}
-
-export async function fetchWeeklyForecast(date: string) {
-  const root = apiRootUrl();
-  const response = await fetch(`${root}/api/weekly-forecast?date=${date}`);
-  if (!response.ok) throw new Error('Failed to fetch weekly forecast');
-  return response.json() as Promise<{
-    weekLabel: string;
-    weekOf: string;
-    days: Array<{
-      date: string;
-      dayName: string;
-      shortDate: string;
-      isHoliday: boolean;
-      overall: number | null;
-      congestion: string;
-      bestTime: string | null;
-      bestWait: number | null;
-      bestP10: number | null;
-      bestP90: number | null;
-      worstTime: string | null;
-      worstWait: number | null;
-      hourly: Array<{ hour: string; wait: number; p10: number; p90: number }>;
-    }>;
   }>;
 }
