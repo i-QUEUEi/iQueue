@@ -1,4 +1,4 @@
-﻿import os
+import os
 from pathlib import Path
 from datetime import datetime
 import re
@@ -210,7 +210,7 @@ def _monte_carlo_predict(date_val, day_name, hour, runs):
     p50 = float(np.percentile(wait_samples, 50))
     p90 = float(np.percentile(wait_samples, 90))
     spread = max(1.0, p90 - p10)
-    confidence = int(max(60, min(99, round((1 - min(spread / (mean + 1e-6), 0.6)) * 100))))
+    confidence = int(max(40, min(99, round((1 - min(spread / (mean + 1e-6), 0.6)) * 100))))
 
     return {
         "mean": round(mean, 1),
@@ -758,19 +758,23 @@ def api_historical_analytics():
         return round(float(val), digits)
 
     # Daily average by day of week (Mon-Sat)
+    # Skip days with no records in the dataset (e.g. Wednesday if not generated)
     daily_data = []
     day_names = {0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri', 5: 'Sat'}
     for day_num in range(6):
         day_data = df[df['day_of_week'] == day_num]
-        if len(day_data) > 0:
-            avg_wait = _safe_mean(day_data['waiting_time_min'], 1)
-            busy = day_num in [0, 4]
-            daily_data.append({
-                "day": day_names[day_num],
-                "avgWait": avg_wait,
-                "trend": "High" if avg_wait > 40 else "Medium" if avg_wait > 25 else "Low",
-                "busiest": busy,
-            })
+        if len(day_data) == 0:
+            continue  # No data for this day — omit from chart entirely
+        avg_wait = _safe_mean(day_data['waiting_time_min'], 1)
+        if avg_wait == 0.0:
+            continue  # All-zero means no real records — skip
+        busy = day_num in [0, 4]
+        daily_data.append({
+            "day": day_names[day_num],
+            "avgWait": avg_wait,
+            "trend": "High" if avg_wait > 40 else "Medium" if avg_wait > 25 else "Low",
+            "busiest": busy,
+        })
 
     hourly_data = []
     for hour in range(8, 17):
@@ -781,11 +785,15 @@ def api_historical_analytics():
 
     heatmap_data = []
     for day_num in range(6):
-        day_name = day_names[day_num]
         day_df = df[df['day_of_week'] == day_num]
-        morning = _safe_mean(day_df[day_df['hour'].isin([8, 9, 10, 11])]['waiting_time_min'], 1)
+        if len(day_df) == 0:
+            continue  # No data for this day — omit from heatmap
+        day_name = day_names[day_num]
+        morning   = _safe_mean(day_df[day_df['hour'].isin([8, 9, 10, 11])]['waiting_time_min'], 1)
         afternoon = _safe_mean(day_df[day_df['hour'].isin([12, 13, 14])]['waiting_time_min'], 1)
-        evening = _safe_mean(day_df[day_df['hour'].isin([15, 16])]['waiting_time_min'], 1)
+        evening   = _safe_mean(day_df[day_df['hour'].isin([15, 16])]['waiting_time_min'], 1)
+        if morning == 0.0 and afternoon == 0.0 and evening == 0.0:
+            continue  # All zeros = no usable data
         heatmap_data.append({"day": day_name, "morning": morning, "afternoon": afternoon, "evening": evening})
 
     mid = float(df[df['day_of_week'].isin([2, 3])]['waiting_time_min'].mean())
