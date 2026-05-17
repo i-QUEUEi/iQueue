@@ -1,65 +1,65 @@
 DATA EVALUATION
-Rows: 21428
+Rows: 25762
 Columns: 20
 Duplicate Rows: 0
 Missing Cells: 0
 Negative Waiting Rows: 0
 Negative Queue Rows: 0
-Target Mean: 36.56
-Target Median: 28.60
-Target Std: 22.05
-Target Min/Max: 6.60 / 90.00
-Target P10/P90: 14.90 / 73.60
+Target Mean: 33.22
+Target Median: 26.10
+Target Std: 21.57
+Target Min/Max: 5.70 / 90.00
+Target P10/P90: 13.00 / 71.09
 
 MODEL BENCHMARK
 RandomForest [selected]
-  Train MAE: 2.03
-  Test MAE: 2.92
-  Chronological MAE: 2.74
-  CV MAE: 2.90
-  Robust MAE: 2.86
-  Test R2: 0.9636
-  Chronological R2: 0.9618
+  Train MAE: 1.95
+  Test MAE: 2.74
+  Chronological MAE: 2.59
+  CV MAE: 2.73
+  Robust MAE: 2.69
+  Test R2: 0.9659
+  Chronological R2: 0.9630
 GradientBoosting
-  Train MAE: 2.92
-  Test MAE: 3.09
-  Chronological MAE: 2.91
-  CV MAE: 3.01
-  Robust MAE: 3.01
-  Test R2: 0.9612
-  Chronological R2: 0.9585
+  Train MAE: 2.78
+  Test MAE: 2.89
+  Chronological MAE: 2.73
+  CV MAE: 2.86
+  Robust MAE: 2.83
+  Test R2: 0.9637
+  Chronological R2: 0.9604
 LinearRegression
-  Train MAE: 4.39
-  Test MAE: 4.44
-  Chronological MAE: 4.12
-  CV MAE: 4.39
-  Robust MAE: 4.32
-  Test R2: 0.9247
-  Chronological R2: 0.9235
+  Train MAE: 4.07
+  Test MAE: 4.12
+  Chronological MAE: 3.73
+  CV MAE: 4.07
+  Robust MAE: 3.97
+  Test R2: 0.9294
+  Chronological R2: 0.9294
 
 BASELINE COMPARISON
-Mean Predictor Test MAE: 18.18
-Mean Predictor Test RMSE: 22.28
-Mean Predictor Test R2: -0.0002
+Mean Predictor Test MAE: 16.88
+Mean Predictor Test RMSE: 21.78
+Mean Predictor Test R2: -0.0001
 
 ROBUST EVALUATION
-Random Split MAE: 2.92
-Random Split RMSE: 4.25
-Random Split R2: 0.9636
-Chronological Train Dates: 176
-Chronological Test Dates: 44
-Chronological Test MAE: 2.74
-Chronological Test RMSE: 4.03
-Chronological Test R2: 0.9618
-P90 Absolute Error: 7.28
-P95 Absolute Error: 9.80
-Max Absolute Error: 24.67
+Random Split MAE: 2.74
+Random Split RMSE: 4.02
+Random Split R2: 0.9659
+Chronological Train Dates: 211
+Chronological Test Dates: 53
+Chronological Test MAE: 2.59
+Chronological Test RMSE: 3.78
+Chronological Test R2: 0.9630
+P90 Absolute Error: 6.35
+P95 Absolute Error: 9.25
+Max Absolute Error: 23.93
 
 SEGMENT ERROR CHECKS
-Peak Day MAE (Mon/Fri): 4.68
+Peak Day MAE (Mon/Fri): 4.66
 Non-Peak Day MAE: 1.76
-Peak Hour MAE: 3.70
-Non-Peak Hour MAE: 1.96
+Peak Hour MAE: 3.41
+Non-Peak Hour MAE: 1.87
 
 WHY THESE MODELS
 LinearRegression is the simplest baseline and shows whether the pattern is close to linear.
@@ -77,19 +77,19 @@ Filtered negative waiting times and queue lengths, then dropped missing rows for
 Kept the engineered lag and peak features because they encode the queue dynamics directly.
 
 FEATURE IMPORTANCE
-waiting_time_lag1: 0.2683
-queue_length_at_arrival: 0.2671
-service_time_min: 0.1656
+queue_length_at_arrival: 0.2727
+waiting_time_lag1: 0.2703
+service_time_min: 0.1573
 queue_length_lag1: 0.1121
-is_peak_day: 0.0859
-is_peak_hour: 0.0366
-day_of_week: 0.0282
-hour: 0.0211
-month_sin: 0.0038
-month: 0.0033
-is_weekend: 0.0029
-week_of_month: 0.0019
-month_cos: 0.0015
-is_holiday: 0.0006
+is_peak_day: 0.0949
+day_of_week: 0.0307
+is_peak_hour: 0.0304
+hour: 0.0188
+month: 0.0029
+month_sin: 0.0028
+is_weekend: 0.0027
+week_of_month: 0.0017
+month_cos: 0.0013
 is_end_of_month: 0.0005
+is_holiday: 0.0005
 is_pre_holiday: 0.0004

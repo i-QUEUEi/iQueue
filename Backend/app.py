@@ -854,7 +854,7 @@ def api_predictive_analytics():
             lo, hi = int(np.percentile(p, 25)), int(np.percentile(p, 75))
             mean_p = float(np.mean(p))
         std = float(np.std(p))
-        conf = int(max(60, min(99, round((1 - min(std / (mean_p + 1e-6), 0.5)) * 100))))
+        conf = int(max(40, min(99, round((1 - min(std / (mean_p + 1e-6), 0.5)) * 100))))
         return (lo, hi), mean_p, conf
 
     morning = slot_stats([8, 9, 10, 11], None, None)

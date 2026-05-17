@@ -103,8 +103,11 @@ print("=" * 70)
 # ==================== MAIN DATA GENERATION LOOP ====================
 # Outer loop: iterate through each week
 for week in range(NUM_WEEKS):
-    # Calculate the Monday of this week
-    current_date = START_DATE + timedelta(weeks=week)
+    # Calculate the Monday of this week (snap to week start regardless of START_DATE's day)
+    # Without this, weeks starting mid-week (e.g. Thursday) would skip Wednesday entirely
+    raw_date = START_DATE + timedelta(weeks=week)
+    current_date = raw_date - timedelta(days=raw_date.weekday())  # weekday() 0=Mon, so this snaps to Monday
+
 
     # FACTOR: Long-term trend — slight sinusoidal drift + linear growth over time
     # Makes the data look like queue volumes slowly evolve (not perfectly static)
