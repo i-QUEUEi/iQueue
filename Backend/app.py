@@ -981,6 +981,102 @@ def api_metrics():
     return jsonify({"metricsText": text, "featureImportance": feature_importance}), 200
 
 
+@app.route('/api/weekly-forecast', methods=['GET'])
+def api_weekly_forecast():
+    """Return Mon-Sat ML forecast for the week containing the given date.
+
+    Query params:
+        date: YYYY-MM-DD  (defaults to today)
+    """
+    global model, _holiday_md
+
+    date_str = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+    try:
+        target = pd.Timestamp(date_str)
+    except Exception:
+        return jsonify({"error": "Invalid date. Use YYYY-MM-DD"}), 400
+
+    # Snap to Monday of the selected week
+    monday = target - pd.Timedelta(days=target.dayofweek)
+
+    day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+    hours = list(range(8, 17))
+    mc_runs = int(os.environ.get("PREDICT_MC_RUNS", "500"))
+
+    days_result = []
+    for i, day_name in enumerate(day_names):
+        day_date = monday + pd.Timedelta(days=i)
+        is_holiday = bool(_holiday_md and (day_date.month, day_date.day) in _holiday_md)
+
+        if is_holiday:
+            days_result.append({
+                "date": day_date.strftime('%Y-%m-%d'),
+                "dayName": day_name,
+                "shortDate": day_date.strftime('%b %d'),
+                "isHoliday": True,
+                "overall": None,
+                "congestion": "CLOSED",
+                "bestTime": None, "bestWait": None,
+                "worstTime": None, "worstWait": None,
+                "hourly": [],
+            })
+            continue
+
+        hourly = []
+        for hour in hours:
+            mc = _monte_carlo_predict(day_date, day_name, hour, mc_runs)
+            if mc:
+                hourly.append({
+                    "hour": f"{hour:02d}:00",
+                    "wait": round(mc["mean"], 1),
+                    "p10": round(mc["p10"], 1),
+                    "p90": round(mc["p90"], 1),
+                })
+
+        if not hourly:
+            days_result.append({
+                "date": day_date.strftime('%Y-%m-%d'),
+                "dayName": day_name,
+                "shortDate": day_date.strftime('%b %d'),
+                "isHoliday": False,
+                "overall": None, "congestion": "LOW",
+                "bestTime": None, "bestWait": None,
+                "worstTime": None, "worstWait": None,
+                "hourly": [],
+            })
+            continue
+
+        waits = [h["wait"] for h in hourly]
+        overall = round(float(np.mean(waits)), 1)
+        best_idx = int(np.argmin(waits))
+        worst_idx = int(np.argmax(waits))
+        congestion, _ = _congestion_from_wait(overall)
+
+        days_result.append({
+            "date": day_date.strftime('%Y-%m-%d'),
+            "dayName": day_name,
+            "shortDate": day_date.strftime('%b %d'),
+            "isHoliday": False,
+            "overall": overall,
+            "congestion": congestion,
+            "bestTime": hourly[best_idx]["hour"],
+            "bestWait": hourly[best_idx]["wait"],
+            "bestP10": hourly[best_idx]["p10"],
+            "bestP90": hourly[best_idx]["p90"],
+            "worstTime": hourly[worst_idx]["hour"],
+            "worstWait": hourly[worst_idx]["wait"],
+            "hourly": hourly,
+        })
+
+    week_label = f"{monday.strftime('%b %d')} \u2013 {(monday + pd.Timedelta(days=5)).strftime('%b %d, %Y')}"
+    return jsonify({
+        "weekLabel": week_label,
+        "weekOf": monday.strftime('%Y-%m-%d'),
+        "days": days_result,
+    })
+
+
+
 @app.errorhandler(404)
 def not_found(error):
     """Handle 404 errors"""

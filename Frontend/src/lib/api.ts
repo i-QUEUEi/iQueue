@@ -66,15 +66,27 @@ export async function fetchDatasetSummary() {
   }
 }
 
-/** Demo dates aligned with training data (2026) so day_of_week matches `date`. */
-const DEMO_DATE_BY_DAY: Record<string, string> = {
-  Monday: '2026-05-11',
-  Tuesday: '2026-05-12',
-  Wednesday: '2026-05-13',
-  Thursday: '2026-05-14',
-  Friday: '2026-05-15',
-  Saturday: '2026-05-16',
-};
+/** Returns the real calendar date for the given day name within the current week (Mon-Sat). */
+function getDateForDayThisWeek(dayName: string): string {
+  const ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const today = new Date();
+  // Snap to Monday of this week (local time)
+  const dow = today.getDay(); // 0=Sun, 1=Mon … 6=Sat
+  const toMonday = dow === 0 ? -6 : 1 - dow;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + toMonday);
+  monday.setHours(0, 0, 0, 0);
+
+  const idx = ORDER.indexOf(dayName);
+  const target = new Date(monday);
+  target.setDate(monday.getDate() + (idx >= 0 ? idx : 0));
+
+  // Format as YYYY-MM-DD using LOCAL date components (not UTC)
+  const y = target.getFullYear();
+  const m = String(target.getMonth() + 1).padStart(2, '0');
+  const d = String(target.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
 
 const HOLIDAY_DEMO_DATE = '2026-01-01';
 
@@ -90,7 +102,7 @@ export async function fetchLivePrediction(
   options?: { signal?: AbortSignal }
 ) {
   const hour = parseInt(input.time.split(':')[0], 10);
-  const date = input.isHoliday ? HOLIDAY_DEMO_DATE : DEMO_DATE_BY_DAY[input.day] || '2026-05-13';
+  const date = input.isHoliday ? HOLIDAY_DEMO_DATE : getDateForDayThisWeek(input.day);
   const body = {
     date,
     hour,
@@ -118,5 +130,30 @@ export async function fetchLivePrediction(
     unit: string;
     method?: string;
     timestamp: string;
+  }>;
+}
+
+export async function fetchWeeklyForecast(date: string) {
+  const root = apiRootUrl();
+  const response = await fetch(`${root}/api/weekly-forecast?date=${date}`);
+  if (!response.ok) throw new Error('Failed to fetch weekly forecast');
+  return response.json() as Promise<{
+    weekLabel: string;
+    weekOf: string;
+    days: Array<{
+      date: string;
+      dayName: string;
+      shortDate: string;
+      isHoliday: boolean;
+      overall: number | null;
+      congestion: string;
+      bestTime: string | null;
+      bestWait: number | null;
+      bestP10: number | null;
+      bestP90: number | null;
+      worstTime: string | null;
+      worstWait: number | null;
+      hourly: Array<{ hour: string; wait: number; p10: number; p90: number }>;
+    }>;
   }>;
 }

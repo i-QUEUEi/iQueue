@@ -13,6 +13,7 @@ const HistoricalAnalyticsSection = lazy(() => import('../components/landing/Hist
 const SystemReliabilitySection = lazy(() => import('../components/landing/SystemReliabilitySection'));
 const LiveSimulationSection = lazy(() => import('../components/landing/LiveSimulationSection'));
 const ImpactSection = lazy(() => import('../components/landing/ImpactSection'));
+const WeeklyForecastSection = lazy(() => import('../components/landing/WeeklyForecastSection'));
 
 type ThemeMode = 'dark' | 'light';
 
@@ -80,6 +81,10 @@ export default function LandingPage() {
 
       <Suspense fallback={<ThemedSuspenseLoader label="Loading simulation demo…" />}>
         <LiveSimulationSection />
+      </Suspense>
+
+      <Suspense fallback={<ThemedSuspenseLoader label="Loading weekly forecast…" />}>
+        <WeeklyForecastSection />
       </Suspense>
 
       <Suspense fallback={<ThemedSuspenseLoader label="Finishing up…" />}>
