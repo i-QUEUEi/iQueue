@@ -845,6 +845,7 @@ def api_predictive_analytics():
         sub = df[df["hour"].isin(hours)]
         if len(sub) == 0:
             return None, None, None
+
         if model is not None and all(c in sub.columns for c in FEATURES):
             p = model.predict(sub[FEATURES])
             lo, hi = int(np.percentile(p, 25)), int(np.percentile(p, 75))
@@ -853,8 +854,26 @@ def api_predictive_analytics():
             p = sub["waiting_time_min"].to_numpy()
             lo, hi = int(np.percentile(p, 25)), int(np.percentile(p, 75))
             mean_p = float(np.mean(p))
-        std = float(np.std(p))
-        conf = int(max(40, min(99, round((1 - min(std / (mean_p + 1e-6), 0.5)) * 100))))
+
+        # Compute confidence per day-of-week then average.
+        # This reflects how consistent the model is WITHIN a single day's slot
+        # (e.g. "Monday mornings always ~55-70") rather than across all days
+        # (which mixes Mon 65min + Wed 18min and produces artificially low confidence).
+        day_confs = []
+        for dow in sub["day_of_week"].unique():
+            day_sub = sub[sub["day_of_week"] == dow]
+            if len(day_sub) < 2:
+                continue
+            if model is not None and all(c in day_sub.columns for c in FEATURES):
+                dp = model.predict(day_sub[FEATURES])
+            else:
+                dp = day_sub["waiting_time_min"].to_numpy()
+            d_std = float(np.std(dp))
+            d_mean = float(np.mean(dp))
+            d_conf = int(max(40, min(99, round((1 - min(d_std / (d_mean + 1e-6), 0.5)) * 100))))
+            day_confs.append(d_conf)
+
+        conf = int(round(np.mean(day_confs))) if day_confs else 70
         return (lo, hi), mean_p, conf
 
     morning = slot_stats([8, 9, 10, 11], None, None)
