@@ -144,7 +144,7 @@ This is the heart of the project. It orchestrates the entire training pipeline:
 3. Calls `load_data()` to clean the data and add features
 4. Calls `get_features()` to extract X and y
 5. Splits into train/test sets (80/20 random split)
-6. Gets the chronological split from [`splits.py`](../src/Evaluation/splits.py)
+6. Gets the chronological split from [`splits.py`](../src/Evaluation/model_quality/splits.py)
 7. Loads the model catalog and loops through each model
 
 ### The Evaluation Folder — `src/Evaluation/`
@@ -153,44 +153,44 @@ This is the heart of the project. It orchestrates the entire training pipeline:
 
 This folder holds all evaluation logic, completely separate from the training script. It was designed this way so evaluation can be updated without touching training code.
 
-#### `evaluation.py` — the core evaluator
-[`src/Evaluation/evaluation.py`](../src/Evaluation/evaluation.py)
+#### `model_evaluation.py` — the core evaluator
+[`src/Evaluation/model_quality/model_evaluation.py`](../src/Evaluation/model_quality/model_evaluation.py)
 
 `evaluate_model()` runs each model through **three different tests**:
 
-**Test 1 — Random split** ([L45–49](../src/Evaluation/evaluation.py#L45-L49))
+**Test 1 — Random split** ([L45–49](../src/Evaluation/model_quality/model_evaluation.py#L45-L49))
 Trains on the 80% random train set, predicts on the 20% test set. This is the standard machine learning test.
 
-**Test 2 — Chronological split** ([L51–53](../src/Evaluation/evaluation.py#L51-L53))
+**Test 2 — Chronological split** ([L51–53](../src/Evaluation/model_quality/model_evaluation.py#L51-L53))
 A completely separate model is cloned and trained on the oldest 80% of dates, tested on the newest 20%. This tests whether the model generalizes to future dates — much more realistic than a random split for time-based data.
 
-**Test 3 — 5-fold cross-validation** ([L55–66](../src/Evaluation/evaluation.py#L55-L66))
+**Test 3 — 5-fold cross-validation** ([L55–66](../src/Evaluation/model_quality/model_evaluation.py#L55-L66))
 Splits the training data into 5 equal chunks. Trains on 4, tests on 1. Repeats 5 times. This gives a stable average score across many different train/test combinations.
 
-All three MAE scores are averaged into **`robust_mae`** ([L75](../src/Evaluation/evaluation.py#L75)):
+All three MAE scores are averaged into **`robust_mae`** ([L75](../src/Evaluation/model_quality/model_evaluation.py#L75)):
 ```python
 robust_mae = float(np.mean([test_metrics["mae"], chrono_metrics["mae"], cv_mae]))
 ```
 The model with the **lowest `robust_mae`** is selected as the winner.
 
-The function also computes **error percentiles** ([L77–80](../src/Evaluation/evaluation.py#L77-L80)) — P90, P95, and max absolute error — so we know the worst-case behavior, not just the average.
+The function also computes **error percentiles** ([L77–80](../src/Evaluation/model_quality/model_evaluation.py#L77-L80)) — P90, P95, and max absolute error — so we know the worst-case behavior, not just the average.
 
-It also segments errors by day and hour ([L97–105](../src/Evaluation/evaluation.py#L97-L105)) to check if the model is significantly worse on peak days vs normal days.
+It also segments errors by day and hour ([L97–105](../src/Evaluation/model_quality/model_evaluation.py#L97-L105)) to check if the model is significantly worse on peak days vs normal days.
 
-`evaluate_data_quality()` ([L137–155](../src/Evaluation/evaluation.py#L137-L155)) checks the **raw** CSV (before any cleaning) for duplicates, missing values, negative waits, and prints target distribution statistics.
+`evaluate_data_quality()` ([L137–155](../src/Evaluation/data_quality/data_evaluation.py#L137-L155)) checks the **raw** CSV (before any cleaning) for duplicates, missing values, negative waits, and prints target distribution statistics.
 
 #### `metrics.py` — shared error calculator
-[`src/Evaluation/metrics.py`](../src/Evaluation/metrics.py)
+[`src/Evaluation/model_quality/metrics.py`](../src/Evaluation/model_quality/metrics.py)
 
 One function: `compute_metrics(y_true, y_pred)` that returns a dictionary of MAE, RMSE, and R². Used everywhere metrics need to be calculated.
 
 #### `splits.py` — time-aware split
-[`src/Evaluation/splits.py`](../src/Evaluation/splits.py)
+[`src/Evaluation/model_quality/splits.py`](../src/Evaluation/model_quality/splits.py)
 
 `chronological_split()` sorts all data by date, finds all unique dates, cuts at 80%, and returns the oldest 80% as training and newest 20% as test. This is much harder to "cheat" than a random split because the model has never seen any of the test dates during training.
 
 #### `plots.py` — 4 charts saved to disk
-[`src/Evaluation/plots.py`](../src/Evaluation/plots.py)
+[`src/Evaluation/outputs/plots.py`](../src/Evaluation/outputs/plots.py)
 
 After training, four PNG charts are generated and saved to [`outputs/plots/`](../outputs/plots/):
 
@@ -202,12 +202,12 @@ After training, four PNG charts are generated and saved to [`outputs/plots/`](..
 | `plot_actual_vs_predicted()` | `actual_vs_predicted.png` | Scatter plot: actual vs predicted wait times. Points near the diagonal = good predictions |
 
 #### `reporting.py` — the full written report
-[`src/Evaluation/reporting.py`](../src/Evaluation/reporting.py)
+[`src/Evaluation/outputs/reporting.py`](../src/Evaluation/outputs/reporting.py)
 
 `write_report()` generates [`outputs/metrics.txt`](../outputs/metrics.txt) — a plain text file with 8 sections explaining everything: data quality, model benchmark results, baseline comparison, robust evaluation, segment error checks, why these models were chosen, why others weren't, and preprocessing rationale.
 
 #### `samples.py` — sanity check
-[`src/Evaluation/samples.py`](../src/Evaluation/samples.py)
+[`src/Evaluation/outputs/samples.py`](../src/Evaluation/outputs/samples.py)
 
 After saving the model, 6 hardcoded test cases are run through it. These are scenarios where we already know roughly what the answer should be:
 - "Monday 9am, 25 people in queue → should be ~55 min"
@@ -355,13 +355,17 @@ iQueue/
 │   │       └── gradient_boosting.py ← Model 3: sequential boosted trees
 │   │
 │   └── Evaluation/
-│       ├── __init__.py              ← Makes Evaluation a Python package
-│       ├── evaluation.py            ← evaluate_model() + evaluate_data_quality()
-│       ├── metrics.py               ← compute_metrics(): MAE, RMSE, R²
-│       ├── splits.py                ← chronological_split() for time-aware testing
-│       ├── plots.py                 ← 4 chart generators (PNG output)
-│       ├── reporting.py             ← write_report(): full metrics.txt writer
-│       └── samples.py               ← sample_predictions(): sanity check runs
+│       ├── __init__.py              ← Re-exports all functions (backward compat)
+│       ├── data_quality/
+│       │   └── data_evaluation.py   ← evaluate_data_quality(): audits raw CSV
+│       ├── model_quality/
+│       │   ├── model_evaluation.py  ← evaluate_model() + get_feature_importance()
+│       │   ├── metrics.py           ← compute_metrics(): MAE, RMSE, R²
+│       │   └── splits.py            ← chronological_split(): date-based 80/20
+│       └── outputs/
+│           ├── plots.py             ← 4 chart generators (PNG output)
+│           ├── reporting.py         ← write_report(): full metrics.txt writer
+│           └── samples.py           ← sample_predictions(): sanity check runs
 │
 │   └── Prediction/
 │       ├── predict.py               ← Entry point: sets up paths, calls main()
@@ -408,13 +412,16 @@ Step 2: src/Preprocessing/ (called by train_model.py)
 Step 3: src/model_implementation/model_zoo/ (called by train_model.py)
    → Builds LinearRegression, RandomForest, GradientBoosting
 
-Step 4: src/Evaluation/ (called by train_model.py)
-   → evaluation.py  tests each model 3 ways (random + chrono + CV)
-   → metrics.py     computes MAE, RMSE, R²
-   → splits.py      handles the chronological train/test split
+Step 4: src/Evaluation/model_quality/ (called by train_model.py)
+   → model_evaluation.py  tests each model 3 ways (random + chrono + CV)
+   → metrics.py           computes MAE, RMSE, R²
+   → splits.py            handles the chronological train/test split
    → Selects winner by lowest robust_mae
 
-Step 5: src/Evaluation/ (output phase)
+Step 4b: src/Evaluation/data_quality/ (called by train_model.py)
+   → data_evaluation.py  audits raw CSV before any cleaning
+
+Step 5: src/Evaluation/outputs/ (output phase)
    → plots.py      saves 4 charts to outputs/plots/
    → reporting.py  saves full report to outputs/metrics.txt
    → samples.py    runs sanity-check predictions
@@ -426,3 +433,6 @@ Step 6: src/Prediction/ (run after training)
    → inference.py  runs Monte Carlo predictions (1000 simulations per hour)
    → cli.py        shows the interactive menu to the user
 ```
+
+
+

@@ -1,4 +1,4 @@
-# Evaluation Details
+﻿# Evaluation Details
 
 This document explains every evaluation step used in this project, what each metric means, the results from the latest run, and whether the evaluation approach is standard. Metrics and values below come from [outputs/metrics.txt](../outputs/metrics.txt) and [outputs/model_comparison.csv](../outputs/model_comparison.csv).
 
@@ -9,22 +9,22 @@ This document explains every evaluation step used in this project, what each met
 **Purpose:** Confirm the dataset is clean and suitable for training. This is a standard prerequisite for any ML project.
 
 **Where in the code:**
-- Function: [`evaluate_data_quality()`](../src/Evaluation/evaluation.py#L137) in [evaluation.py](../src/Evaluation/evaluation.py)
+- Function: [`evaluate_data_quality()`](../src/Evaluation/data_quality/data_evaluation.py#L137) in [evaluation.py](../src/Evaluation/data_quality/data_evaluation.py)
 - Called on the **raw** CSV at [train_model.py — L45](../src/model_implementation/train_model.py#L45)
-- Results written to `metrics.txt` at [reporting.py — L11–22](../src/Evaluation/reporting.py#L11-L22)
+- Results written to `metrics.txt` at [reporting.py — L11–22](../src/Evaluation/outputs/reporting.py#L11-L22)
 
 **What each check does:**
 
 | Check | Code line | Result |
 |---|---|---|
-| Row count | [L142](../src/Evaluation/evaluation.py#L142) | 21,428 rows |
-| Column count | [L143](../src/Evaluation/evaluation.py#L143) | 20 columns |
-| Duplicate rows | [L144](../src/Evaluation/evaluation.py#L144) | 0 |
-| Missing cells | [L145](../src/Evaluation/evaluation.py#L145) | 0 |
-| Negative waiting rows | [L146](../src/Evaluation/evaluation.py#L146) | 0 |
-| Negative queue rows | [L147](../src/Evaluation/evaluation.py#L147) | 0 |
+| Row count | [L142](../src/Evaluation/data_quality/data_evaluation.py) | 21,428 rows |
+| Column count | [L143](../src/Evaluation/data_quality/data_evaluation.py) | 20 columns |
+| Duplicate rows | [L144](../src/Evaluation/data_quality/data_evaluation.py) | 0 |
+| Missing cells | [L145](../src/Evaluation/data_quality/data_evaluation.py) | 0 |
+| Negative waiting rows | [L146](../src/Evaluation/data_quality/data_evaluation.py) | 0 |
+| Negative queue rows | [L147](../src/Evaluation/data_quality/data_evaluation.py) | 0 |
 
-**Target distribution (waiting_time_min)** — computed at [L148–155](../src/Evaluation/evaluation.py#L148-L155):
+**Target distribution (waiting_time_min)** — computed at [L148–155](../src/Evaluation/data_quality/data_evaluation.py-L155):
 
 | Stat | Value |
 |---|---|
@@ -45,7 +45,7 @@ This document explains every evaluation step used in this project, what each met
 **Where in the code:**
 - Model catalog: [model_zoo/\_\_init\_\_.py — L6–11](../src/model_implementation/model_zoo/__init__.py#L6-L11)
 - Training loop: [train_model.py — L57–90](../src/model_implementation/train_model.py#L57-L90)
-- Each model evaluated via [`evaluate_model()`](../src/Evaluation/evaluation.py#L33) in [evaluation.py — L33–134](../src/Evaluation/evaluation.py#L33-L134)
+- Each model evaluated via [`evaluate_model()`](../src/Evaluation/model_quality/model_evaluation.py#L33) in [model_evaluation.py — L33–134](../src/Evaluation/model_quality/model_evaluation.py#L33-L134)
 - Results sorted and printed at [train_model.py — L92–99](../src/model_implementation/train_model.py#L92-L99)
 
 **Models compared:**
@@ -64,7 +64,7 @@ This document explains every evaluation step used in this project, what each met
 | GradientBoosting | 3.09 | 2.93 | 3.00 | 3.01 | 0.9613 |
 | LinearRegression | 4.44 | 4.12 | 4.39 | 4.32 | 0.9248 |
 
-**Why the selected model wins:** RandomForest has the lowest `robust_mae` — computed at [evaluation.py — L75](../src/Evaluation/evaluation.py#L75):
+**Why the selected model wins:** RandomForest has the lowest `robust_mae` — computed at [model_evaluation.py — L75](../src/Evaluation/model_quality/model_evaluation.py#L75):
 ```python
 robust_mae = float(np.mean([test_metrics["mae"], chrono_metrics["mae"], cv_mae]))
 ```
@@ -80,8 +80,8 @@ The winner is picked at [train_model.py — L89–90](../src/model_implementatio
 
 **Where in the code:**
 - Baseline built at [train_model.py — L101–103](../src/model_implementation/train_model.py#L101-L103)
-- `compute_metrics()` used: [metrics.py — L5–10](../src/Evaluation/metrics.py#L5-L10)
-- Written to report at [reporting.py — L36–39](../src/Evaluation/reporting.py#L36-L39)
+- `compute_metrics()` used: [metrics.py — L5–10](../src/Evaluation/model_quality/metrics.py#L5-L10)
+- Written to report at [reporting.py — L36–39](../src/Evaluation/outputs/reporting.py#L36-L39)
 
 **Baseline results (mean predictor):**
 
@@ -99,10 +99,10 @@ The winner is picked at [train_model.py — L89–90](../src/model_implementatio
 
 ## 4. Robust Evaluation (Multiple Splits)
 
-**Purpose:** Make sure performance is not an accident of one split. All three methods run inside [`evaluate_model()`](../src/Evaluation/evaluation.py#L33).
+**Purpose:** Make sure performance is not an accident of one split. All three methods run inside [`evaluate_model()`](../src/Evaluation/model_quality/model_evaluation.py#L33).
 
 ### Random Split
-- Code: [evaluation.py — L45–49](../src/Evaluation/evaluation.py#L45-L49)
+- Code: [model_evaluation.py — L45–49](../src/Evaluation/model_quality/model_evaluation.py#L45-L49)
 - Split done in [train_model.py — L50](../src/model_implementation/train_model.py#L50): 80% train / 20% test, randomly shuffled
 
 | Metric | RandomForest |
@@ -112,9 +112,9 @@ The winner is picked at [train_model.py — L89–90](../src/model_implementatio
 | R² | 0.9637 |
 
 ### Chronological Split
-- Split logic: [splits.py — L4–23](../src/Evaluation/splits.py#L4-L23) — sorts by date, cuts at 80% of unique dates
+- Split logic: [splits.py — L4–23](../src/Evaluation/model_quality/splits.py#L4-L23) — sorts by date, cuts at 80% of unique dates
 - Called at [train_model.py — L51](../src/model_implementation/train_model.py#L51)
-- Trains `chrono_model` at [evaluation.py — L51–53](../src/Evaluation/evaluation.py#L51-L53)
+- Trains `chrono_model` at [model_evaluation.py — L51–53](../src/Evaluation/model_quality/model_evaluation.py#L51-L53)
 
 | Metric | RandomForest |
 |---|---|
@@ -125,7 +125,7 @@ The winner is picked at [train_model.py — L89–90](../src/model_implementatio
 | R² | 0.9618 |
 
 ### 5-Fold Cross-Validation
-- Code: [evaluation.py — L55–66](../src/Evaluation/evaluation.py#L55-L66)
+- Code: [model_evaluation.py — L55–66](../src/Evaluation/model_quality/model_evaluation.py#L55-L66)
 - Uses `KFold(n_splits=5, shuffle=True)` scoring MAE, RMSE, and R²
 
 | Metric | RandomForest |
@@ -135,7 +135,7 @@ The winner is picked at [train_model.py — L89–90](../src/model_implementatio
 | CV R² | 0.9636 |
 
 ### Robust MAE (final score)
-All three MAEs averaged at [evaluation.py — L75](../src/Evaluation/evaluation.py#L75):
+All three MAEs averaged at [model_evaluation.py — L75](../src/Evaluation/model_quality/model_evaluation.py#L75):
 ```python
 robust_mae = float(np.mean([test_metrics["mae"], chrono_metrics["mae"], cv_mae]))
 # RandomForest: (2.92 + 2.74 + 2.89) / 3 = 2.85
@@ -149,14 +149,14 @@ robust_mae = float(np.mean([test_metrics["mae"], chrono_metrics["mae"], cv_mae])
 
 **Purpose:** Understand how large errors get in worst cases, not just on average.
 
-**Where in the code:** [evaluation.py — L77–80](../src/Evaluation/evaluation.py#L77-L80)
+**Where in the code:** [model_evaluation.py — L77–80](../src/Evaluation/model_quality/model_evaluation.py#L77-L80)
 ```python
 abs_errors = np.abs(y_test.to_numpy() - test_pred)
 p90_abs_error = float(np.percentile(abs_errors, 90))
 p95_abs_error = float(np.percentile(abs_errors, 95))
 max_abs_error = float(np.max(abs_errors))
 ```
-Written to report at [reporting.py — L50–52](../src/Evaluation/reporting.py#L50-L52).
+Written to report at [reporting.py — L50–52](../src/Evaluation/outputs/reporting.py#L50-L52).
 
 **Results (RandomForest):**
 
@@ -176,14 +176,14 @@ Written to report at [reporting.py — L50–52](../src/Evaluation/reporting.py#
 
 **Purpose:** Confirm performance does not collapse on busy periods.
 
-**Where in the code:** [evaluation.py — L97–105](../src/Evaluation/evaluation.py#L97-L105)
+**Where in the code:** [model_evaluation.py — L97–105](../src/Evaluation/model_quality/model_evaluation.py#L97-L105)
 ```python
 day_error   = eval_df.groupby("day_name")["abs_error"].agg(...)
 hour_error  = eval_df.groupby("hour")["abs_error"].agg(...)
 peak_day_error  = eval_df.groupby("is_peak_day")["abs_error"].mean()
 peak_hour_error = eval_df.groupby("is_peak_hour")["abs_error"].mean()
 ```
-Written to report at [reporting.py — L54–58](../src/Evaluation/reporting.py#L54-L58).
+Written to report at [reporting.py — L54–58](../src/Evaluation/outputs/reporting.py#L54-L58).
 
 **Results (RandomForest):**
 
@@ -204,9 +204,9 @@ Written to report at [reporting.py — L54–58](../src/Evaluation/reporting.py#
 
 **Purpose:** Explain which inputs drive predictions most.
 
-**Where in the code:** [`get_feature_importance()`](../src/Evaluation/evaluation.py#L10) at [evaluation.py — L10–30](../src/Evaluation/evaluation.py#L10-L30). For RandomForest, it reads `model.feature_importances_` directly ([L11–12](../src/Evaluation/evaluation.py#L11-L12)). Results normalized to sum to 1 at [L27–29](../src/Evaluation/evaluation.py#L27-L29).
+**Where in the code:** [`get_feature_importance()`](../src/Evaluation/model_quality/model_evaluation.py#L10) at [model_evaluation.py — L10–30](../src/Evaluation/model_quality/model_evaluation.py#L10-L30). For RandomForest, it reads `model.feature_importances_` directly ([L11–12](../src/Evaluation/model_quality/model_evaluation.py#L11-L12)). Results normalized to sum to 1 at [L27–29](../src/Evaluation/model_quality/model_evaluation.py#L27-L29).
 
-Written to report at [reporting.py — L75–77](../src/Evaluation/reporting.py#L75-L77).
+Written to report at [reporting.py — L75–77](../src/Evaluation/outputs/reporting.py#L75-L77).
 
 **Top features (RandomForest):**
 
@@ -236,13 +236,16 @@ Written to report at [reporting.py — L75–77](../src/Evaluation/reporting.py#
 
 | Evaluation Type | Code location | Standard? |
 |---|---|---|
-| Data quality checks | [evaluation.py — L137–155](../src/Evaluation/evaluation.py#L137-L155) | ✅ Yes |
+| Data quality checks | [model_evaluation.py — L137–155](../src/Evaluation/data_quality/data_evaluation.py-L155) | ✅ Yes |
 | Baseline comparison | [train_model.py — L101–103](../src/model_implementation/train_model.py#L101-L103) | ✅ Yes |
-| Random split | [evaluation.py — L45–49](../src/Evaluation/evaluation.py#L45-L49) | ✅ Yes |
-| Chronological split | [splits.py — L4–23](../src/Evaluation/splits.py#L4-L23) | ✅ Yes |
-| Cross-validation | [evaluation.py — L55–66](../src/Evaluation/evaluation.py#L55-L66) | ✅ Yes |
-| Tail error (P90/P95) | [evaluation.py — L77–80](../src/Evaluation/evaluation.py#L77-L80) | ✅ Yes |
-| Segment error checks | [evaluation.py — L97–105](../src/Evaluation/evaluation.py#L97-L105) | ✅ Yes |
-| Feature importance | [evaluation.py — L10–30](../src/Evaluation/evaluation.py#L10-L30) | ✅ Yes |
+| Random split | [model_evaluation.py — L45–49](../src/Evaluation/model_quality/model_evaluation.py#L45-L49) | ✅ Yes |
+| Chronological split | [splits.py — L4–23](../src/Evaluation/model_quality/splits.py#L4-L23) | ✅ Yes |
+| Cross-validation | [model_evaluation.py — L55–66](../src/Evaluation/model_quality/model_evaluation.py#L55-L66) | ✅ Yes |
+| Tail error (P90/P95) | [model_evaluation.py — L77–80](../src/Evaluation/model_quality/model_evaluation.py#L77-L80) | ✅ Yes |
+| Segment error checks | [model_evaluation.py — L97–105](../src/Evaluation/model_quality/model_evaluation.py#L97-L105) | ✅ Yes |
+| Feature importance | [model_evaluation.py — L10–30](../src/Evaluation/model_quality/model_evaluation.py#L10-L30) | ✅ Yes |
 
 **Overall result:** MAE ≈ 3 minutes, R² ≈ 0.96, consistent across all three evaluation strategies.
+
+
+

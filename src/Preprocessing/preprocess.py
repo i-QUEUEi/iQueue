@@ -104,7 +104,11 @@ if __name__ == "__main__":
     # ── Save preprocessed DataFrame to CSV ────────────────────────────────────
     # Create the output directory if it doesn't already exist
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_csv(OUTPUT_CSV, index=False)  # write full cleaned + feature DataFrame
-
-    print(f"\n[DONE] Preprocessed data saved -> {OUTPUT_CSV}")
+    try:
+        df.to_csv(OUTPUT_CSV, index=False)  # write full cleaned + feature DataFrame
+        print(f"\n[DONE] Preprocessed data saved -> {OUTPUT_CSV}")
+    except PermissionError:
+        print(f"\n[WARN] Could not save {OUTPUT_CSV.name} — file is open in another program.")
+        print("       Close the file (e.g. Excel) and re-run to update it.")
+        print("       Training will continue using the raw CSV as a fallback.")
     print("=" * 60)

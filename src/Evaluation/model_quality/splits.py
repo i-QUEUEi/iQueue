@@ -34,8 +34,8 @@ def chronological_split(df, features):
     split_idx = min(max(split_idx, 1), len(unique_dates) - 1)
 
     # Split dates into training (oldest) and testing (newest) groups
-    time_train_dates = unique_dates[:split_idx]    # e.g., Jan–Aug
-    time_test_dates = unique_dates[split_idx:]     # e.g., Sep–Nov
+    time_train_dates = unique_dates[:split_idx]
+    time_test_dates = unique_dates[split_idx:]
 
     # Select rows belonging to each group
     time_train_df = df_time[normalized_dates.isin(time_train_dates)]

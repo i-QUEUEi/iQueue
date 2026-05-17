@@ -28,17 +28,18 @@ if str(SRC_DIR) not in sys.path:
 # Import our custom modules from the project
 from Preprocessing.preprocess import get_features, load_data
 from model_implementation import build_model_catalog
-from Evaluation.evaluation import evaluate_data_quality, evaluate_model
-from Evaluation.metrics import compute_metrics
-from Evaluation.plots import (
+from Evaluation.data_quality.data_evaluation import evaluate_data_quality
+from Evaluation.model_quality.model_evaluation import evaluate_model
+from Evaluation.model_quality.metrics import compute_metrics
+from Evaluation.outputs.plots import (
     plot_actual_vs_predicted,
     plot_day_hour_heatmap,
     plot_model_comparison,
     plot_target_distribution,
 )
-from Evaluation.reporting import write_report
-from Evaluation.samples import sample_predictions
-from Evaluation.splits import chronological_split
+from Evaluation.outputs.reporting import write_report
+from Evaluation.outputs.samples import sample_predictions
+from Evaluation.model_quality.splits import chronological_split
 
 # ==================== FILE PATHS ====================
 DATA_PATH = ROOT_DIR / "data" / "synthetic_lto_cdo_queue_90days.csv"      # Raw input CSV

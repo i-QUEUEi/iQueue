@@ -1,4 +1,4 @@
-# Model Comparison: Why Random Forest
+﻿# Model Comparison: Why Random Forest
 
 This project benchmarks `LinearRegression`, `GradientBoosting`, and `RandomForest`. RandomForest is selected because it delivers the best accuracy and stability across all evaluation splits. Results come from [outputs/metrics.txt](../outputs/metrics.txt) and [outputs/model_comparison.csv](../outputs/model_comparison.csv).
 
@@ -82,12 +82,12 @@ graph LR
 
 ## Head-to-Head Results
 
-Each model is evaluated using **3 methods** inside [`evaluate_model()`](../src/Evaluation/evaluation.py#L33):
-- Random split — [evaluation.py — L45–49](../src/Evaluation/evaluation.py#L45-L49)
-- Chronological split — [evaluation.py — L51–53](../src/Evaluation/evaluation.py#L51-L53) using [splits.py — L4–23](../src/Evaluation/splits.py#L4-L23)
-- 5-fold cross-validation — [evaluation.py — L55–66](../src/Evaluation/evaluation.py#L55-L66)
+Each model is evaluated using **3 methods** inside [`evaluate_model()`](../src/Evaluation/model_quality/model_evaluation.py#L33):
+- Random split — [model_evaluation.py — L45–49](../src/Evaluation/model_quality/model_evaluation.py#L45-L49)
+- Chronological split — [model_evaluation.py — L51–53](../src/Evaluation/model_quality/model_evaluation.py#L51-L53) using [splits.py — L4–23](../src/Evaluation/model_quality/splits.py#L4-L23)
+- 5-fold cross-validation — [model_evaluation.py — L55–66](../src/Evaluation/model_quality/model_evaluation.py#L55-L66)
 
-Then averaged into `robust_mae` at [evaluation.py — L75](../src/Evaluation/evaluation.py#L75).
+Then averaged into `robust_mae` at [model_evaluation.py — L75](../src/Evaluation/model_quality/model_evaluation.py#L75).
 
 | Model | Test MAE | Chrono MAE | CV MAE | **Robust MAE** | Test R² |
 |---|---|---|---|---|---|
@@ -265,7 +265,7 @@ This is the actual output from `train_model.py` during Step 4/6, with every valu
 
 ## Why RandomForest Works Best Here
 
-Written to `metrics.txt` at [reporting.py — L60–63](../src/Evaluation/reporting.py#L60-L63).
+Written to `metrics.txt` at [reporting.py — L60–63](../src/Evaluation/outputs/reporting.py#L60-L63).
 
 1. **Nonlinear patterns** — Queue dynamics are not linear. RandomForest captures interactions between time, queue length, and lag features naturally.
 2. **Handles mixed feature types** — Works with numeric + binary flags without manual scaling.
@@ -276,7 +276,7 @@ Written to `metrics.txt` at [reporting.py — L60–63](../src/Evaluation/report
 
 ## Why the Other Models Lose
 
-Written to `metrics.txt` at [reporting.py — L65–68](../src/Evaluation/reporting.py#L65-L68).
+Written to `metrics.txt` at [reporting.py — L65–68](../src/Evaluation/outputs/reporting.py#L65-L68).
 
 - **`LinearRegression`** — Too simple. It draws one straight line through all the data. Queue wait times don't follow a straight line (Monday 10am is much worse than Wednesday 10am, even at the same queue length). This causes a MAE of 4.44 vs RandomForest's 2.92.
 - **`GradientBoosting`** — Competitive but slightly weaker. It uses only 250 trees ([gradient_boosting.py — L6](../src/model_implementation/model_zoo/gradient_boosting.py#L6)) with a slow learning rate, which limits capacity on this dataset. Its robust MAE of 3.01 is still 6% worse than RandomForest.
@@ -288,7 +288,7 @@ Written to `metrics.txt` at [reporting.py — L65–68](../src/Evaluation/report
 | Concern | Reality |
 |---|---|
 | Training speed | RandomForest is slower than LinearRegression, but still finishes in seconds |
-| Interpretability | Lower than linear, but feature importance is available at [evaluation.py — L10–30](../src/Evaluation/evaluation.py#L10-L30) |
+| Interpretability | Lower than linear, but feature importance is available at [model_evaluation.py — L10–30](../src/Evaluation/model_quality/model_evaluation.py#L10-L30) |
 | Overfitting risk | Controlled by `max_depth=15`, `min_samples_leaf=2` at [random_forest.py — L7–9](../src/model_implementation/model_zoo/random_forest.py#L7-L9) |
 
 ---
@@ -305,3 +305,6 @@ model = joblib.load(MODEL_PATH)
 ```
 
 It wins because it has the lowest robust MAE (2.85), the highest R² (0.9637), and the most consistent performance across all three evaluation methods.
+
+
+

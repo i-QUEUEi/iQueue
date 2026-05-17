@@ -1,4 +1,4 @@
-# iQueue Code Reference
+﻿# iQueue Code Reference
 
 > Think of iQueue like a **smart restaurant host**. Before you arrive, it has already studied months of past customer patterns. When you ask "how long is the wait?", it doesn't guess — it checks what day it is, what time it is, how busy it usually gets, and gives you a real answer. This document explains how all the code pieces work together to make that happen.
 
@@ -35,12 +35,12 @@ There are **two major phases**:
 | [src/model_implementation/model_zoo/random_forest.py](../src/model_implementation/model_zoo/random_forest.py) | Model #2: Group of decision trees voting together |
 | [src/model_implementation/model_zoo/gradient_boosting.py](../src/model_implementation/model_zoo/gradient_boosting.py) | Model #3: Trees that learn from each other's mistakes |
 | [src/model_implementation/model_zoo/__init__.py](../src/model_implementation/model_zoo/__init__.py) | The "model menu" — lists all models to test |
-| [src/Evaluation/evaluation.py](../src/Evaluation/evaluation.py) | Tests how good each model is using 3 different methods |
-| [src/Evaluation/metrics.py](../src/Evaluation/metrics.py) | Calculates the actual error scores (MAE, RMSE, R²) |
-| [src/Evaluation/splits.py](../src/Evaluation/splits.py) | Splits data by date order (oldest → train, newest → test) |
-| [src/Evaluation/plots.py](../src/Evaluation/plots.py) | Draws 4 charts to visualize model performance |
-| [src/Evaluation/reporting.py](../src/Evaluation/reporting.py) | Writes a full human-readable report explaining everything |
-| [src/Evaluation/samples.py](../src/Evaluation/samples.py) | Runs a few test predictions to make sure the model "makes sense" |
+| [src/Evaluation/model_quality/model_evaluation.py](../src/Evaluation/model_quality/model_evaluation.py) | Tests how good each model is using 3 different methods |
+| [src/Evaluation/model_quality/metrics.py](../src/Evaluation/model_quality/metrics.py) | Calculates the actual error scores (MAE, RMSE, R²) |
+| [src/Evaluation/model_quality/splits.py](../src/Evaluation/model_quality/splits.py) | Splits data by date order (oldest → train, newest → test) |
+| [src/Evaluation/outputs/plots.py](../src/Evaluation/outputs/plots.py) | Draws 4 charts to visualize model performance |
+| [src/Evaluation/outputs/reporting.py](../src/Evaluation/outputs/reporting.py) | Writes a full human-readable report explaining everything |
+| [src/Evaluation/outputs/samples.py](../src/Evaluation/outputs/samples.py) | Runs a few test predictions to make sure the model "makes sense" |
 | [src/Prediction/context.py](../src/Prediction/context.py) | Loads the saved model and builds a lookup table of historical patterns |
 | [src/Prediction/patterns.py](../src/Prediction/patterns.py) | Reads the lookup table to find what the queue "usually looks like" at a given time |
 | [src/Prediction/inference.py](../src/Prediction/inference.py) | Builds the input and asks the model for a prediction |
@@ -607,7 +607,7 @@ from Preprocessing.preprocess import load_data, get_features
 
 ### Step 4 — Test all models
 
-**Files:** [train_model.py](../src/model_implementation/train_model.py), [model_zoo/](../src/model_implementation/model_zoo/__init__.py), [evaluation.py](../src/Evaluation/evaluation.py)
+**Files:** [train_model.py](../src/model_implementation/train_model.py), [model_zoo/](../src/model_implementation/model_zoo/__init__.py), [evaluation.py](../src/Evaluation/model_quality/model_evaluation.py)
 
 Three models compete against each other. Each is defined in its own file, assembled into a catalog, then trained and evaluated in a loop.
 
@@ -755,13 +755,13 @@ joblib.dump(selected_result["model"], MODEL_PATH)  # → models/queue_model.pkl
 
 ### Step 5 — Evaluate each model (3 different ways)
 
-**File:** [evaluation.py](../src/Evaluation/evaluation.py)
+**File:** [evaluation.py](../src/Evaluation/model_quality/model_evaluation.py)
 
-Just checking accuracy on one test set is not enough — a model might get lucky. So each model is tested **3 ways** inside the `evaluate_model()` function ([Lines 33–134](../src/Evaluation/evaluation.py#L33-L134)).
+Just checking accuracy on one test set is not enough — a model might get lucky. So each model is tested **3 ways** inside the `evaluate_model()` function ([Lines 33–134](../src/Evaluation/model_quality/model_evaluation.py#L33-L134)).
 
 ---
 
-#### 🎲 Way 1 — Random Split ([evaluation.py — Lines 45–49](../src/Evaluation/evaluation.py#L45-L49))
+#### 🎲 Way 1 — Random Split ([model_evaluation.py — Lines 45–49](../src/Evaluation/model_quality/model_evaluation.py#L45-L49))
 
 ```python
 fitted_model = clone(model)          # Fresh copy of the model
@@ -781,7 +781,7 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 
 ---
 
-#### 📅 Way 2 — Chronological Split ([evaluation.py — Lines 51–53](../src/Evaluation/evaluation.py#L51-L53), using [splits.py](../src/Evaluation/splits.py))
+#### 📅 Way 2 — Chronological Split ([model_evaluation.py — Lines 51–53](../src/Evaluation/model_quality/model_evaluation.py#L51-L53), using [splits.py](../src/Evaluation/model_quality/splits.py))
 
 ```python
 chrono_model = clone(model)
@@ -789,7 +789,7 @@ chrono_model.fit(chrono_train[0], chrono_train[1])    # Train on oldest 80% of d
 chrono_pred = chrono_model.predict(chrono_test[0])    # Predict on newest 20%
 ```
 
-The split logic in [splits.py — Lines 4–23](../src/Evaluation/splits.py#L4-L23):
+The split logic in [splits.py — Lines 4–23](../src/Evaluation/model_quality/splits.py#L4-L23):
 
 ```python
 def chronological_split(df, features):
@@ -808,7 +808,7 @@ def chronological_split(df, features):
 
 ---
 
-#### 🔄 Way 3 — 5-Fold Cross-Validation ([evaluation.py — Lines 55–66](../src/Evaluation/evaluation.py#L55-L66))
+#### 🔄 Way 3 — 5-Fold Cross-Validation ([model_evaluation.py — Lines 55–66](../src/Evaluation/model_quality/model_evaluation.py#L55-L66))
 
 ```python
 cv = KFold(n_splits=5, shuffle=True, random_state=random_state)
@@ -833,7 +833,7 @@ cv_results = cross_validate(
 
 **Why `shuffle=True`:** Without shuffling, fold 1 would always be the earliest data and fold 5 the latest — making this just another chronological split. Shuffling mixes the data so each fold contains a random sample from all time periods.
 
-**Why scores are negative:** Sklearn's convention uses negative values for error metrics (so higher = better internally). The code flips them back ([Lines 71–73](../src/Evaluation/evaluation.py#L71-L73)):
+**Why scores are negative:** Sklearn's convention uses negative values for error metrics (so higher = better internally). The code flips them back ([Lines 71–73](../src/Evaluation/model_quality/model_evaluation.py#L71-L73)):
 ```python
 cv_mae = float(-cv_results["test_mae"].mean())     # Flip sign back
 cv_rmse = float(-cv_results["test_rmse"].mean())
@@ -844,7 +844,7 @@ cv_r2 = float(cv_results["test_r2"].mean())          # R² is already positive
 
 ---
 
-#### 📊 Combining all 3 into Robust MAE ([Line 75](../src/Evaluation/evaluation.py#L75))
+#### 📊 Combining all 3 into Robust MAE ([Line 75](../src/Evaluation/model_quality/model_evaluation.py#L75))
 
 ```python
 robust_mae = float(np.mean([test_metrics["mae"], chrono_metrics["mae"], cv_mae]))
@@ -862,11 +862,11 @@ A model that scores well on all 3 is genuinely good — not just lucky.
 
 ---
 
-#### 🔍 Additional diagnostics ([Lines 77–107](../src/Evaluation/evaluation.py#L77-L107))
+#### 🔍 Additional diagnostics ([Lines 77–107](../src/Evaluation/model_quality/model_evaluation.py#L77-L107))
 
 After the 3-way evaluation, the function also computes:
 
-**Percentile errors** ([Lines 77–80](../src/Evaluation/evaluation.py#L77-L80)):
+**Percentile errors** ([Lines 77–80](../src/Evaluation/model_quality/model_evaluation.py#L77-L80)):
 ```python
 abs_errors = np.abs(y_test.to_numpy() - test_pred)
 p90_abs_error = float(np.percentile(abs_errors, 90))   # 90% of predictions are within this
@@ -874,12 +874,12 @@ p95_abs_error = float(np.percentile(abs_errors, 95))   # 95% of predictions are 
 max_abs_error = float(np.max(abs_errors))               # Worst single prediction
 ```
 
-**Segment error breakdown** ([Lines 96–105](../src/Evaluation/evaluation.py#L96-L105)):
+**Segment error breakdown** ([Lines 96–105](../src/Evaluation/model_quality/model_evaluation.py#L96-L105)):
 - Error by **day of week** — is the model worse on Mondays vs Wednesdays?
 - Error by **hour** — is the model worse at 10 AM vs 3 PM?
 - Error for **peak vs non-peak** days and hours
 
-**Feature importance** ([Lines 10–30](../src/Evaluation/evaluation.py#L10-L30)):
+**Feature importance** ([Lines 10–30](../src/Evaluation/model_quality/model_evaluation.py#L10-L30)):
 ```python
 def get_feature_importance(model, features, X_reference, y_reference, random_state):
     if hasattr(model, "feature_importances_"):       # Random Forest / Gradient Boosting
@@ -894,7 +894,7 @@ This tells you **which features the model relies on most**. If `queue_length_at_
 
 ### Step 6 — Evaluate the data itself
 
-**File:** [evaluation.py — Lines 137–155](../src/Evaluation/evaluation.py#L137-L155)
+**File:** [model_evaluation.py — Lines 137–155](../src/Evaluation/data_quality/data_evaluation.py-L155)
 
 Before training even begins, `evaluate_data_quality()` audits the **raw CSV** to catch problems early. It's called at [train_model.py — Lines 48–52](../src/model_implementation/train_model.py#L48-L52):
 
@@ -903,7 +903,7 @@ raw_df = pd.read_csv(DATA_PATH)
 summary = evaluate_data_quality(raw_df)
 ```
 
-The function computes a **dictionary of 14 statistics** ([Lines 141–155](../src/Evaluation/evaluation.py#L141-L155)):
+The function computes a **dictionary of 14 statistics** ([Lines 141–155](../src/Evaluation/data_quality/data_evaluation.py#L141-L155)):
 
 ```python
 def evaluate_data_quality(raw_df):
@@ -937,7 +937,7 @@ def evaluate_data_quality(raw_df):
 | `target_std` | Variation in wait times | Near 0 means all waits are the same → nothing for the model to learn |
 | `target_p10` / `target_p90` | Typical range of waits | If P10 ≈ P90, data has no signal |
 
-This summary is printed during training and later saved to `outputs/metrics.txt` by [reporting.py — Lines 11–22](../src/Evaluation/reporting.py#L11-L22).
+This summary is printed during training and later saved to `outputs/metrics.txt` by [reporting.py — Lines 11–22](../src/Evaluation/outputs/reporting.py#L11-L22).
 
 > **Analogy:** Before cooking a meal, a chef checks the ingredients — are they fresh? Any mold? Enough quantity? This step is the data equivalent of that inspection.
 
@@ -945,7 +945,7 @@ This summary is printed during training and later saved to `outputs/metrics.txt`
 
 ### Step 7 — Generate charts
 
-**File:** [plots.py](../src/Evaluation/plots.py)
+**File:** [plots.py](../src/Evaluation/outputs/plots.py)
 
 Four charts are saved to `outputs/plots/`, triggered from [train_model.py — Lines 176–183](../src/model_implementation/train_model.py#L176-L183):
 
@@ -956,11 +956,11 @@ plot_model_comparison(results_df, PLOTS_DIR)
 plot_actual_vs_predicted(y_test.to_numpy(), selected_result["test_pred"], selected_model, PLOTS_DIR)
 ```
 
-**Why `matplotlib.use("Agg")`** ([Line 3](../src/Evaluation/plots.py#L3)): This sets matplotlib to "non-interactive" mode — it generates image files without trying to open a GUI window. Essential for servers and automated pipelines where no screen is available.
+**Why `matplotlib.use("Agg")`** ([Line 3](../src/Evaluation/outputs/plots.py#L3)): This sets matplotlib to "non-interactive" mode — it generates image files without trying to open a GUI window. Essential for servers and automated pipelines where no screen is available.
 
 ---
 
-#### 📊 Chart 1 — Waiting Time Distribution ([Lines 8–16](../src/Evaluation/plots.py#L8-L16))
+#### 📊 Chart 1 — Waiting Time Distribution ([Lines 8–16](../src/Evaluation/outputs/plots.py#L8-L16))
 
 ```python
 def plot_target_distribution(df, plots_dir):
@@ -979,7 +979,7 @@ def plot_target_distribution(df, plots_dir):
 
 ---
 
-#### 🌡️ Chart 2 — Day × Hour Heatmap ([Lines 19–37](../src/Evaluation/plots.py#L19-L37))
+#### 🌡️ Chart 2 — Day × Hour Heatmap ([Lines 19–37](../src/Evaluation/outputs/plots.py#L19-L37))
 
 ```python
 def plot_day_hour_heatmap(df, plots_dir):
@@ -1004,7 +1004,7 @@ def plot_day_hour_heatmap(df, plots_dir):
 
 ---
 
-#### 📊 Chart 3 — Model Comparison Bar Chart ([Lines 40–56](../src/Evaluation/plots.py#L40-L56))
+#### 📊 Chart 3 — Model Comparison Bar Chart ([Lines 40–56](../src/Evaluation/outputs/plots.py#L40-L56))
 
 ```python
 def plot_model_comparison(results_df, plots_dir):
@@ -1023,7 +1023,7 @@ def plot_model_comparison(results_df, plots_dir):
 
 ---
 
-#### 🎯 Chart 4 — Actual vs Predicted Scatter ([Lines 59–69](../src/Evaluation/plots.py#L59-L69))
+#### 🎯 Chart 4 — Actual vs Predicted Scatter ([Lines 59–69](../src/Evaluation/outputs/plots.py#L59-L69))
 
 ```python
 def plot_actual_vs_predicted(y_true, y_pred, model_name, plots_dir):
@@ -1051,9 +1051,9 @@ def plot_actual_vs_predicted(y_true, y_pred, model_name, plots_dir):
 
 ### Step 8 — Write the report
 
-**File:** [reporting.py](../src/Evaluation/reporting.py)
+**File:** [reporting.py](../src/Evaluation/outputs/reporting.py)
 
-The `write_report()` function ([Lines 4–78](../src/Evaluation/reporting.py#L4-L78)) generates a comprehensive human-readable report at `outputs/metrics.txt`. It's called from [train_model.py — Line 186](../src/model_implementation/train_model.py#L186):
+The `write_report()` function ([Lines 4–78](../src/Evaluation/outputs/reporting.py#L4-L78)) generates a comprehensive human-readable report at `outputs/metrics.txt`. It's called from [train_model.py — Line 186](../src/model_implementation/train_model.py#L186):
 
 ```python
 write_report(summary, results_df, selected_result, baseline_metrics, time_train_dates, time_test_dates, OUTPUTS_DIR)
@@ -1063,17 +1063,17 @@ The report has **9 sections**, each documenting a different aspect of the traini
 
 | Section | Lines | What it contains | Why it matters |
 |---|---|---|---|
-| **DATA EVALUATION** | [L11–22](../src/Evaluation/reporting.py#L11-L22) | Row count, duplicates, missing values, wait time stats (mean, median, std, min, P10, P90, max) | Proves the data is clean and has enough signal to learn from |
-| **MODEL BENCHMARK** | [L24–34](../src/Evaluation/reporting.py#L24-L34) | All 3 models ranked by MAE, RMSE, R², with `[selected]` marker on the winner | Shows which model was chosen and how close the competition was |
-| **BASELINE COMPARISON** | [L36–39](../src/Evaluation/reporting.py#L36-L39) | MAE/RMSE/R² if you just always guessed the mean wait time | Proves the ML model is better than "just guess the average" |
-| **ROBUST EVALUATION** | [L41–52](../src/Evaluation/reporting.py#L41-L52) | Winner's full results: random split, chrono split, P90/P95/max errors | Shows model performance across different scenarios |
-| **SEGMENT ERROR CHECKS** | [L54–58](../src/Evaluation/reporting.py#L54-L58) | Error on peak days/hours vs. non-peak | Exposes if the model is biased against certain scenarios |
-| **WHY THESE MODELS** | [L60–63](../src/Evaluation/reporting.py#L60-L63) | Plain-English justification for Linear Regression, Random Forest, and Gradient Boosting | Documents the design decision for future reference |
-| **WHY NOT OTHERS** | [L65–68](../src/Evaluation/reporting.py#L65-L68) | Why neural networks, scaling, one-hot encoding weren't used | Preempts "why didn't you try X?" questions |
-| **PREPROCESSING CHOICES** | [L70–73](../src/Evaluation/reporting.py#L70-L73) | Why lag features, week_of_month, and filtering were chosen | Documents feature engineering rationale |
-| **FEATURE IMPORTANCE** | [L75–77](../src/Evaluation/reporting.py#L75-L77) | Ranked list of all 16 features by importance score | Shows what the model actually relies on |
+| **DATA EVALUATION** | [L11–22](../src/Evaluation/outputs/reporting.py#L11-L22) | Row count, duplicates, missing values, wait time stats (mean, median, std, min, P10, P90, max) | Proves the data is clean and has enough signal to learn from |
+| **MODEL BENCHMARK** | [L24–34](../src/Evaluation/outputs/reporting.py#L24-L34) | All 3 models ranked by MAE, RMSE, R², with `[selected]` marker on the winner | Shows which model was chosen and how close the competition was |
+| **BASELINE COMPARISON** | [L36–39](../src/Evaluation/outputs/reporting.py#L36-L39) | MAE/RMSE/R² if you just always guessed the mean wait time | Proves the ML model is better than "just guess the average" |
+| **ROBUST EVALUATION** | [L41–52](../src/Evaluation/outputs/reporting.py#L41-L52) | Winner's full results: random split, chrono split, P90/P95/max errors | Shows model performance across different scenarios |
+| **SEGMENT ERROR CHECKS** | [L54–58](../src/Evaluation/outputs/reporting.py#L54-L58) | Error on peak days/hours vs. non-peak | Exposes if the model is biased against certain scenarios |
+| **WHY THESE MODELS** | [L60–63](../src/Evaluation/outputs/reporting.py#L60-L63) | Plain-English justification for Linear Regression, Random Forest, and Gradient Boosting | Documents the design decision for future reference |
+| **WHY NOT OTHERS** | [L65–68](../src/Evaluation/outputs/reporting.py#L65-L68) | Why neural networks, scaling, one-hot encoding weren't used | Preempts "why didn't you try X?" questions |
+| **PREPROCESSING CHOICES** | [L70–73](../src/Evaluation/outputs/reporting.py#L70-L73) | Why lag features, week_of_month, and filtering were chosen | Documents feature engineering rationale |
+| **FEATURE IMPORTANCE** | [L75–77](../src/Evaluation/outputs/reporting.py#L75-L77) | Ranked list of all 16 features by importance score | Shows what the model actually relies on |
 
-**How the benchmark section works** ([Lines 24–34](../src/Evaluation/reporting.py#L24-L34)):
+**How the benchmark section works** ([Lines 24–34](../src/Evaluation/outputs/reporting.py#L24-L34)):
 
 ```python
 for _, row in model_rows.iterrows():
@@ -1098,9 +1098,9 @@ for _, row in model_rows.iterrows():
 
 ### Step 9 — Sanity check predictions
 
-**File:** [samples.py](../src/Evaluation/samples.py)
+**File:** [samples.py](../src/Evaluation/outputs/samples.py)
 
-After saving the model, **6 hardcoded test cases** are run through it ([Lines 7–14](../src/Evaluation/samples.py#L7-L14)). These are scenarios where you already know the expected answer from the `TRUE_PATTERNS` table:
+After saving the model, **6 hardcoded test cases** are run through it ([Lines 7–14](../src/Evaluation/outputs/samples.py#L7-L14)). These are scenarios where you already know the expected answer from the `TRUE_PATTERNS` table:
 
 ```python
 test_cases = [
@@ -1113,7 +1113,7 @@ test_cases = [
 ]
 ```
 
-For each test case, a feature row is manually constructed ([Lines 19–37](../src/Evaluation/samples.py#L19-L37)):
+For each test case, a feature row is manually constructed ([Lines 19–37](../src/Evaluation/outputs/samples.py#L19-L37)):
 
 ```python
 feature_values = {
@@ -1262,7 +1262,10 @@ src/Prediction/cli.py
 1. [main.py](../main.py) — Start here. Just 10 lines. Understand what runs and in what order.
 2. [data/Data_.py](../data/Data_.py) — See how the training data is made and what patterns it simulates.
 3. [src/Preprocessing/loader.py](../src/Preprocessing/loader.py) — Understand what cleaning and feature engineering is applied.
-4. [src/Evaluation/evaluation.py](../src/Evaluation/evaluation.py) — See the 3-way evaluation strategy and how `robust_mae` is computed.
+4. [src/Evaluation/model_quality/model_evaluation.py](../src/Evaluation/model_quality/model_evaluation.py) — See the 3-way evaluation strategy and how `robust_mae` is computed.
 5. [src/model_implementation/train_model.py](../src/model_implementation/train_model.py) — The full training pipeline in one place.
 6. [src/Prediction/inference.py](../src/Prediction/inference.py) — How a prediction is made at query time.
 7. [src/Prediction/cli.py](../src/Prediction/cli.py) — How the interface presents results to users.
+
+
+

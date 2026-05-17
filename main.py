@@ -14,11 +14,13 @@ print("=" * 60)
 # feature-engineered DataFrame to data/Preprocessed/preprocessed_data.csv.
 # Training (Step 2) will load that file directly, skipping re-preprocessing.
 print("\n[1/3] Running preprocessing...")
-subprocess.run(
+result = subprocess.run(
     [sys.executable, "-m", "Preprocessing.preprocess"],
     cwd=str(SRC_DIR),   # must run from src/ so package imports resolve
-    check=True,
 )
+if result.returncode != 0:
+    print("[WARN] Preprocessing exited with an error (likely a file-lock).")
+    print("       Training will continue using the raw CSV fallback.\n")
 
 # ── Step 2: Training ──────────────────────────────────────────
 # Loads the preprocessed CSV, trains all 3 models, picks the winner,
