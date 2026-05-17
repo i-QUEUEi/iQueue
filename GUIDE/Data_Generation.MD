@@ -88,6 +88,72 @@ extracts month name and day number, converts to datetime.date objects.
 
 ---
 
+## THE WEEK LOOP — Why Wednesday Was Missing (and the Fix)
+
+### The bug
+
+`START_DATE = datetime(2026, 1, 1)` — January 1, 2026 is a **Thursday**.
+
+The main generation loop originally did:
+
+```python
+for week in range(NUM_WEEKS):
+    current_date = START_DATE + timedelta(weeks=week)  # always a Thursday
+    for day_offset in range(6):                        # offsets 0-5
+        day_date = current_date + timedelta(days=day_offset)
+```
+
+Walking 6 days from Thursday:
+
+```
+offset 0 → Thursday
+offset 1 → Friday
+offset 2 → Saturday
+offset 3 → Sunday   ← not in TRUE_PATTERNS → skipped
+offset 4 → Monday
+offset 5 → Tuesday
+           Wednesday → never reached (would need offset 6)
+```
+
+Every week for 44 weeks, **Wednesday was skipped**. The resulting CSV had 0 Wednesday rows.
+
+### The fix — snap to Monday first
+
+```python
+for week in range(NUM_WEEKS):
+    raw_date = START_DATE + timedelta(weeks=week)
+    # weekday() returns 0=Mon … 6=Sun — subtracting it snaps to Monday of that week
+    current_date = raw_date - timedelta(days=raw_date.weekday())
+    for day_offset in range(6):
+        day_date = current_date + timedelta(days=day_offset)
+```
+
+Now regardless of what day `START_DATE` falls on, the loop **always starts from Monday**:
+
+```
+offset 0 → Monday
+offset 1 → Tuesday
+offset 2 → Wednesday   ← now generated
+offset 3 → Thursday
+offset 4 → Friday
+offset 5 → Saturday
+```
+
+### Impact
+
+| | Before fix | After fix |
+|---|---|---|
+| Monday | ✅ Generated | ✅ Generated |
+| Tuesday | ✅ Generated | ✅ Generated |
+| Wednesday | ❌ 0 rows | ✅ ~4,262 rows |
+| Thursday | ✅ Generated | ✅ Generated |
+| Friday | ✅ Generated | ✅ Generated |
+| Saturday | ✅ Generated | ✅ Generated |
+
+The model previously generalised Wednesday predictions from adjacent days (Tuesday/Thursday). After the fix, it trains directly on Wednesday rows. The `TRUE_PATTERNS` values for Wednesday were always correct — only the loop prevented them from being used.
+
+---
+
 ## THE 17 MODIFIERS
 
 All modifiers are **multipliers** stacked on top of the base pattern value.

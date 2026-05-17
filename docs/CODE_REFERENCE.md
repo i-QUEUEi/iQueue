@@ -1,4 +1,4 @@
-﻿# iQueue Code Reference
+# iQueue Code Reference
 
 > Think of iQueue like a **smart restaurant host**. Before you arrive, it has already studied months of past customer patterns. When you ask "how long is the wait?", it doesn't guess — it checks what day it is, what time it is, how busy it usually gets, and gives you a real answer. This document explains how all the code pieces work together to make that happen.
 
@@ -1267,5 +1267,163 @@ src/Prediction/cli.py
 6. [src/Prediction/inference.py](../src/Prediction/inference.py) — How a prediction is made at query time.
 7. [src/Prediction/cli.py](../src/Prediction/cli.py) — How the interface presents results to users.
 
+---
 
+## 🌐 Backend API — Weekly Forecast Endpoint
+
+### `GET /api/weekly-forecast`
+
+**File:** [Backend/app.py](../Backend/app.py) — `api_weekly_forecast()`
+
+Returns a Monday–Saturday ML forecast for the week containing the provided date. Each day entry includes overall average wait, congestion level, best hour to visit, and worst hour to avoid — computed by running the Monte Carlo simulation across all 9 working hours.
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `date` | `YYYY-MM-DD` string | today | Any date within the target week |
+
+**How it works:**
+
+```python
+# 1. Snap to Monday of the week (regardless of which day date falls on)
+monday = target - pd.Timedelta(days=target.dayofweek)
+
+# 2. For each day Mon–Sat, for each hour 8am–4pm:
+mc = _monte_carlo_predict(day_date, day_name, hour, mc_runs=500)
+
+# 3. Aggregate hourly results into daily summary
+overall   = mean of all hourly mean predictions
+best_time = hour with lowest mean prediction
+worst_time = hour with highest mean prediction
+congestion = LOW / MODERATE / HIGH based on overall average
+```
+
+**Holiday handling:** If a day falls on a Philippine holiday (checked against `_holiday_md`), that day returns `congestion: "CLOSED"` and no prediction data.
+
+**Example response:**
+
+```json
+{
+  "weekLabel": "May 18 – May 23, 2026",
+  "weekOf": "2026-05-18",
+  "days": [
+    {
+      "date": "2026-05-18",
+      "dayName": "Monday",
+      "shortDate": "May 18",
+      "isHoliday": false,
+      "overall": 50.4,
+      "congestion": "HIGH",
+      "bestTime": "08:00",
+      "bestWait": 27.1,
+      "bestP10": 25.0,
+      "bestP90": 29.0,
+      "worstTime": "14:00",
+      "worstWait": 66.2,
+      "hourly": [
+        { "hour": "08:00", "wait": 27.1, "p10": 25.0, "p90": 29.0 },
+        ...
+      ]
+    },
+    ...
+  ]
+}
+```
+
+---
+
+## 🖥️ Frontend — WeeklyForecastSection Component
+
+**File:** [Frontend/src/components/landing/WeeklyForecastSection.tsx](../Frontend/src/components/landing/WeeklyForecastSection.tsx)
+
+A new landing page section placed directly below the Live Simulation & Demo section. Lets users select any week via a calendar and instantly see a Monday–Saturday forecast from the ML model.
+
+### Layout
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Weekly Forecast                        │
+│          (header + subtitle)                            │
+├──────────────────────┬──────────────────────────────────┤
+│  Calendar (month     │  Week at a Glance panel          │
+│  view, click any     │  (quick summary list Mon–Sat)    │
+│  day to select week) │                                  │
+│  ← Selected week →   │                                  │
+└──────────────────────┴──────────────────────────────────┘
+│  Mon  │  Tue  │  Wed  │  Thu  │  Fri  │  Sat  │  ← Day cards
+│ card  │ card  │ card  │ card  │ card  │ card  │
+└───────┴───────┴───────┴───────┴───────┴───────┘
+```
+
+### Key implementation details
+
+**Timezone-safe date formatting:**
+
+```typescript
+function toYMD(d: Date): string {
+  // Local date components — NOT toISOString() which converts to UTC
+  // toISOString() would shift May 11 midnight (+08:00) → May 10 UTC
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+```
+
+**Week snapping (mirrors backend logic):**
+
+```typescript
+function getMondayOfWeek(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay(); // 0=Sun, 1=Mon …
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+```
+
+**Calendar grid:** Built from the first day of the displayed month, offset by `firstDay.getDay()` to align with the Sunday-start column layout. Cells outside the month are rendered as invisible placeholders.
+
+**Selected week highlight:** `isSameWeek()` checks if each calendar cell belongs to the currently selected week by comparing `getMondayOfWeek(cell)` with `selectedMonday`.
+
+**API call:** Uses `fetchWeeklyForecast(toYMD(selectedMonday))` from `Frontend/src/lib/api.ts`, which hits `GET /api/weekly-forecast?date=<date>`.
+
+### Congestion color mapping
+
+| Congestion | Card gradient | Badge color | Dot |
+|---|---|---|---|
+| HIGH | `from-red-600/30` | `bg-red-600` | red |
+| MODERATE | `from-yellow-600/30` | `bg-yellow-600` | yellow |
+| LOW | `from-green-600/30` | `bg-green-600` | green |
+| CLOSED | `from-gray-700/30` | `bg-gray-600` | gray |
+
+---
+
+## 🔄 Dynamic Date Detection — Live Simulation
+
+**File:** [Frontend/src/lib/api.ts](../Frontend/src/lib/api.ts) — `getDateForDayThisWeek()`
+
+The Live Simulation section previously used hardcoded dates (`Monday: '2026-05-11'` etc.). These were replaced with a function that computes the **real calendar date** for the selected day within the current week:
+
+```typescript
+function getDateForDayThisWeek(dayName: string): string {
+  const ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const today = new Date();
+  const dow = today.getDay();              // 0=Sun, 1=Mon …
+  const toMonday = dow === 0 ? -6 : 1 - dow;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + toMonday);
+  monday.setHours(0, 0, 0, 0);
+
+  const idx = ORDER.indexOf(dayName);
+  const target = new Date(monday);
+  target.setDate(monday.getDate() + (idx >= 0 ? idx : 0));
+
+  // Local date components — avoids UTC shift bug
+  return `${y}-${m}-${d}`;
+}
+```
+
+**Why this matters:** If a user runs the Live Simulation on a Monday, selecting "Monday" now sends that actual Monday's date to the backend. This enables correct holiday detection and accurate `week_of_month` feature values instead of always using a fixed May 2026 date.
 
