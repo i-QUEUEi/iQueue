@@ -46,23 +46,17 @@ def load_ph_holiday_month_days(calendar_path: Path):
     # Read the entire file as plain text
     text = calendar_path.read_text(encoding="utf-8", errors="ignore")
 
-    # Process each line looking for holiday entries
+    # Process each line looking for holiday entries.
+    # IMPORTANT: Each CSV line contains up to 3 holidays side-by-side
+    # (one per column group), so we must use re.findall — not re.search —
+    # to capture ALL matches on the line, not just the first.
     for line in text.splitlines():
-        # Regex breakdown:
-        #   \b([A-Za-z]{3})  → capture exactly 3 letters (month abbreviation like "Jan")
-        #   \s+(\d{1,2})     → one or more spaces, then 1-2 digit day number
-        #   \s*:\s*           → optional spaces around a colon (separator before holiday name)
-        match = re.search(r"\b([A-Za-z]{3})\s+(\d{1,2})\s*:\s*", line)
-        if not match:
-            continue  # Skip lines that don't match the holiday format
-
-        # Extract and convert the month and day
-        month_name = match.group(1).title()   # Normalize case: "jan" → "Jan"
-        day = int(match.group(2))             # Convert string to integer: "1" → 1
-        month = MONTH_MAP.get(month_name)     # Look up month number: "Jan" → 1
-
-        # Only add if the month abbreviation was recognized
-        if month:
-            holiday_md.add((month, day))       # Store as tuple: (1, 1) for January 1st
+        matches = re.findall(r"\b([A-Za-z]{3})\s+(\d{1,2})\s*:\s*", line)
+        for month_name_raw, day_str in matches:
+            month_name = month_name_raw.title()   # Normalize: "jan" → "Jan"
+            day = int(day_str)                    # "30" → 30
+            month = MONTH_MAP.get(month_name)     # "Dec" → 12
+            if month:
+                holiday_md.add((month, day))      # (12, 30) for Dec 30
 
     return holiday_md

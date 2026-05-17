@@ -16,25 +16,25 @@ RandomForest [selected]
   Train MAE: 2.03
   Test MAE: 2.92
   Chronological MAE: 2.74
-  CV MAE: 2.89
-  Robust MAE: 2.85
-  Test R2: 0.9637
+  CV MAE: 2.90
+  Robust MAE: 2.86
+  Test R2: 0.9636
   Chronological R2: 0.9618
 GradientBoosting
   Train MAE: 2.92
   Test MAE: 3.09
-  Chronological MAE: 2.93
-  CV MAE: 3.00
+  Chronological MAE: 2.91
+  CV MAE: 3.01
   Robust MAE: 3.01
-  Test R2: 0.9613
-  Chronological R2: 0.9581
+  Test R2: 0.9612
+  Chronological R2: 0.9585
 LinearRegression
   Train MAE: 4.39
   Test MAE: 4.44
   Chronological MAE: 4.12
   CV MAE: 4.39
   Robust MAE: 4.32
-  Test R2: 0.9248
+  Test R2: 0.9247
   Chronological R2: 0.9235
 
 BASELINE COMPARISON
@@ -44,22 +44,22 @@ Mean Predictor Test R2: -0.0002
 
 ROBUST EVALUATION
 Random Split MAE: 2.92
-Random Split RMSE: 4.24
-Random Split R2: 0.9637
+Random Split RMSE: 4.25
+Random Split R2: 0.9636
 Chronological Train Dates: 176
 Chronological Test Dates: 44
 Chronological Test MAE: 2.74
 Chronological Test RMSE: 4.03
 Chronological Test R2: 0.9618
-P90 Absolute Error: 7.20
-P95 Absolute Error: 9.78
-Max Absolute Error: 25.23
+P90 Absolute Error: 7.28
+P95 Absolute Error: 9.80
+Max Absolute Error: 24.67
 
 SEGMENT ERROR CHECKS
-Peak Day MAE (Mon/Fri): 4.66
+Peak Day MAE (Mon/Fri): 4.68
 Non-Peak Day MAE: 1.76
 Peak Hour MAE: 3.70
-Non-Peak Hour MAE: 1.95
+Non-Peak Hour MAE: 1.96
 
 WHY THESE MODELS
 LinearRegression is the simplest baseline and shows whether the pattern is close to linear.
@@ -77,19 +77,19 @@ Filtered negative waiting times and queue lengths, then dropped missing rows for
 Kept the engineered lag and peak features because they encode the queue dynamics directly.
 
 FEATURE IMPORTANCE
-queue_length_at_arrival: 0.2685
-waiting_time_lag1: 0.2656
-service_time_min: 0.1726
-queue_length_lag1: 0.1114
-is_peak_day: 0.0819
-is_peak_hour: 0.0368
-day_of_week: 0.0279
-hour: 0.0205
-month_sin: 0.0036
-month: 0.0035
+waiting_time_lag1: 0.2683
+queue_length_at_arrival: 0.2671
+service_time_min: 0.1656
+queue_length_lag1: 0.1121
+is_peak_day: 0.0859
+is_peak_hour: 0.0366
+day_of_week: 0.0282
+hour: 0.0211
+month_sin: 0.0038
+month: 0.0033
 is_weekend: 0.0029
-week_of_month: 0.0020
+week_of_month: 0.0019
 month_cos: 0.0015
 is_holiday: 0.0006
 is_end_of_month: 0.0005
-is_pre_holiday: 0.0003
+is_pre_holiday: 0.0004

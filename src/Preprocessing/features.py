@@ -56,7 +56,7 @@ def get_features(df):
     y = df["waiting_time_min"]    # Extract the target: what we're predicting
 
     # Print feature statistics so the user can verify the data distribution
-    print("\n📊 Feature statistics:")
+    print("\n[INFO] Feature statistics:")
     print(f"   Peak days (Mon/Fri): {X['is_peak_day'].sum()} records")
     print(f"   Non-peak days: {len(X) - X['is_peak_day'].sum()} records")
     print(f"   Peak hours: {X['is_peak_hour'].sum()} records")

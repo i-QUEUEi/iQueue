@@ -65,11 +65,11 @@ def load_data(path):
     df = df.dropna()                            # Drop rows with any missing values
 
     # --- Diagnostics: print summary so the user can verify ---
-    print(f"✅ Loaded {len(df)} records")
-    print(f"📊 Date range: {df['date'].min().date()} to {df['date'].max().date()}")
+    print(f"[OK] Loaded {len(df)} records")
+    print(f"[INFO] Date range: {df['date'].min().date()} to {df['date'].max().date()}")
 
     # Show how many records exist per day of the week
-    print("\n📅 Data distribution by day:")
+    print("\n[INFO] Data distribution by day:")
     day_counts = df["day_name"].value_counts()
     for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]:
         if day in day_counts.index:

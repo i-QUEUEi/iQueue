@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 
 from .constants import MONTE_CARLO_RUNS
-from .inference import get_congestion_level, predict_wait_time_monte_carlo
+from .inference import get_congestion_level, get_holiday_name, predict_wait_time_monte_carlo
+from .inference import get_holiday_flags
 
 
 def display_weekly_forecast(target_date):
@@ -39,6 +40,19 @@ def display_weekly_forecast(target_date):
     # Loop through each working day of the week
     for idx, day in enumerate(days):
         day_date = week_start + pd.Timedelta(days=idx)  # Calculate the actual date for this day
+
+        # ── Holiday guard ──────────────────────────────────────────────────────
+        # LTO is closed on Philippine holidays — skip congestion prediction
+        is_hol, _ = get_holiday_flags(day_date)
+        holiday_name = get_holiday_name(day_date) if is_hol else None
+        if is_hol:
+            print(f"\n{day} ({day_date.strftime('%b %d, %Y')}):")
+            print("-" * 40)
+            print(f"   ⛔ CLOSED — {holiday_name}")
+            print("   LTO CDO does not operate on public holidays.")
+            continue
+        # ──────────────────────────────────────────────────────────────────────
+
         print(f"\n{day} ({day_date.strftime('%b %d, %Y')}):")
         print("-" * 40)
 
@@ -91,6 +105,20 @@ def display_daily_forecast(target_date):
     """
     day_name = target_date.strftime("%A")
     week_of_month = (target_date.day - 1) // 7 + 1
+
+    # ── Holiday guard ──────────────────────────────────────────────────────────
+    # LTO is closed on Philippine holidays — show a clear message and return early
+    is_hol, _ = get_holiday_flags(target_date)
+    if is_hol:
+        holiday_name = get_holiday_name(target_date)
+        print("\n" + "=" * 80)
+        print(f"⛔ LTO CDO IS CLOSED ON {day_name.upper()} {target_date.strftime('%B %d, %Y')}")
+        print(f"   Reason: {holiday_name}")
+        print("   Please choose a different date (Mon–Sat, non-holiday).")
+        print("=" * 80)
+        return
+    # ──────────────────────────────────────────────────────────────────────────
+
     print("\n" + "=" * 80)
     print(
         "⏰ HOURLY FORECAST FOR {} — {} (Week {} of month)".format(
@@ -140,6 +168,19 @@ def find_best_time(target_date):
     """
     day_name = target_date.strftime("%A")
     week_of_month = (target_date.day - 1) // 7 + 1
+
+    # ── Holiday guard ──────────────────────────────────────────────────────────
+    is_hol, _ = get_holiday_flags(target_date)
+    if is_hol:
+        holiday_name = get_holiday_name(target_date)
+        print("\n" + "=" * 80)
+        print(f"⛔ LTO CDO IS CLOSED ON {day_name.upper()} {target_date.strftime('%B %d, %Y')}")
+        print(f"   Reason: {holiday_name}")
+        print("   Please choose a different date (Mon–Sat, non-holiday).")
+        print("=" * 80)
+        return
+    # ──────────────────────────────────────────────────────────────────────────
+
     print("\n" + "=" * 80)
     print(f"🔍 BEST TIME TO VISIT ON {day_name.upper()} {target_date.strftime('%B %d, %Y')}")
     print("=" * 80)

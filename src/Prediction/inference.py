@@ -93,6 +93,43 @@ def get_holiday_flags(target_date):
     return is_holiday, is_pre_holiday
 
 
+def get_holiday_name(target_date):
+    """Return the name of the holiday on a given date, or None if not a holiday.
+
+    Reads the calendar CSV and matches the date to a holiday entry like
+    "Jan 1: New Year's Day", returning the name part ("New Year's Day").
+
+    Args:
+        target_date: A pandas Timestamp or date-like object.
+
+    Returns:
+        The holiday name string, e.g. "Christmas Day",
+        or "Philippine Holiday" as a fallback if the name can't be parsed.
+    """
+    import re
+    from .context import HOLIDAY_CALENDAR_PATH
+    from Preprocessing.calendar import MONTH_MAP
+
+    month = target_date.month
+    day = target_date.day
+
+    # Reverse-lookup: month number → 3-letter abbreviation
+    month_abbr = {v: k for k, v in MONTH_MAP.items()}.get(month, "")
+
+    if not HOLIDAY_CALENDAR_PATH.exists():
+        return "Philippine Holiday"
+
+    text = HOLIDAY_CALENDAR_PATH.read_text(encoding="utf-8", errors="ignore")
+    for line in text.splitlines():
+        # Match entries like "Jan 1: New Year's Day" anywhere in the line
+        matches = re.findall(r"\b([A-Za-z]{3})\s+(\d{1,2})\s*:\s*([^,]+)", line)
+        for m_abbr, m_day, m_name in matches:
+            if m_abbr.title() == month_abbr and int(m_day) == day:
+                return m_name.strip()
+
+    return "Philippine Holiday"  # Fallback if name not found in file
+
+
 def predict_wait_time(day_name, target_date, hour):
     """Make a single-point prediction for a specific day/hour combination.
 
